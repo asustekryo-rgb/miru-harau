@@ -59,7 +59,7 @@ export function createPost(renderer, scene, camera) {
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(size.x, size.y);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.85, 0.5, 0.82);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.55, 0.45, 0.92);
   composer.addPass(bloom);
   const horror = new ShaderPass(HorrorShader);
   composer.addPass(horror);

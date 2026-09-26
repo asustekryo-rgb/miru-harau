@@ -2,7 +2,7 @@
 const ACTION_KEYS = {
   Space: 'attack', KeyJ: 'attack', KeyK: 'guard', KeyL: 'salt', ShiftLeft: 'dash', ShiftRight: 'dash',
   KeyE: 'mark', KeyQ: 'now', Digit1: 'danger', Digit2: 'wait', KeyZ: 'zoom',
-  KeyC: 'crouch', ControlLeft: 'crouch', KeyF: 'dodge',
+  KeyC: 'crouch', ControlLeft: 'crouch', KeyF: 'dodge', KeyR: 'barrier',
 };
 
 export class Input {

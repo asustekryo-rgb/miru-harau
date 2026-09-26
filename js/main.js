@@ -13,6 +13,9 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// 明るすぎる所を白飛びさせずに丸める
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
 const sfx = new Sfx();
 const input = new Input($('touch'));
 const scanner = new Scanner();

@@ -32,7 +32,7 @@ export const MODEL = {
 };
 
 const VERT_HEAD = /* glsl */`
-uniform float uTime, uSeed, uTilt, uNod, uArms, uWave, uLunge, uShake;
+uniform float uTime, uSeed, uTilt, uNod, uArms, uArmsAlt, uWave, uLunge, uShake, uStretch;
 varying vec3 vGhostPos;
 float gHash(float n) { return fract(sin(n) * 43758.5453); }
 vec3 ghostDeform(vec3 p) {
@@ -40,7 +40,7 @@ vec3 ghostDeform(vec3 p) {
   // 腕：体の左右（|z|が大きい所）の肩から下を、肩を支点に前へ振り上げる
   float armW = smoothstep(0.092, 0.118, abs(p.z)) * smoothstep(0.36, 0.44, p.y) * (1.0 - smoothstep(0.775, 0.8, p.y));
   vec2 a = vec2(p.x, p.y - ${MODEL.shoulder.toFixed(3)});
-  float ang = uArms * armW;
+  float ang = (uArms + sign(p.z) * uArmsAlt) * armW;
   vec2 ra = vec2(a.x * cos(ang) - a.y * sin(ang), a.x * sin(ang) + a.y * cos(ang));
   q.x = mix(q.x, ra.x, armW);
   q.y = mix(q.y, ra.y + ${MODEL.shoulder.toFixed(3)}, armW);
@@ -58,6 +58,8 @@ vec3 ghostDeform(vec3 p) {
   q.x += cos(uTime * 1.9 + p.y * 11.0 + uSeed) * 0.01 * hem * uWave;
   // 突進：上半身ほど前に引き伸ばす
   q.x += uLunge * (0.08 + p.y * 0.22);
+  // 這い女の突進：頭の方向（+Y）へ体ごと伸びる
+  q.y += uStretch * p.y * 0.35;
   // 映像が裂けたような横ずれ
   float band = floor(p.y * 26.0);
   float g = step(0.72, gHash(band + floor(uTime * 18.0) + uSeed));
@@ -105,10 +107,10 @@ function patch(shader, u, depthOnly) {
 }
 
 // 霊1体分の本体。group は高さ height、正面 -Z に揃えてある
-export function makeModelBody(height, tint = 0xffffff) {
+export function makeModelBody(height, tint = 0xffffff, pose = 'stand') {
   const u = {
     uTime: { value: 0 }, uSeed: { value: Math.random() * 100 }, uTilt: { value: 0 }, uNod: { value: 0 },
-    uArms: { value: 0 }, uWave: { value: 1 }, uLunge: { value: 0 }, uShake: { value: 0 },
+    uArms: { value: 0 }, uArmsAlt: { value: 0 }, uWave: { value: 1 }, uLunge: { value: 0 }, uShake: { value: 0 }, uStretch: { value: 0 },
     uRim: { value: 0.6 }, uRimColor: { value: new THREE.Color(0x9fb8ff) }, uSelf: { value: 0.12 },
     uDissolve: { value: 0 }, uGlow: { value: 0 },
   };
@@ -126,7 +128,15 @@ export function makeModelBody(height, tint = 0xffffff) {
   mesh.castShadow = true;
   mesh.frustumCulled = false; // 頂点を動かすので境界球では判定しない
   const group = new THREE.Group();
-  group.rotation.y = Math.PI / 2; // モデルの正面(+X)をゲームの正面(-Z)へ
+  if (pose === 'crawl') {
+    // うつ伏せ：モデルの頭(+Y)をゲームの前(-Z)へ、顔(+X)を床(-Y)へ
+    group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0),
+    ));
+    group.position.set(0, -0.05, height / 2);
+  } else {
+    group.rotation.y = Math.PI / 2; // モデルの正面(+X)をゲームの正面(-Z)へ
+  }
   group.scale.setScalar(height);
   group.add(mesh);
   return { group, mesh, mat, depth, u };

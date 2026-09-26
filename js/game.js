@@ -2,14 +2,16 @@
 import * as THREE from 'three';
 import * as M from './map.js';
 import { buildWorld } from './world.js';
-import { makeGhost, makeAvatar, makeSword, makeMarker, Fx, Decals } from './entities.js';
+import { makeGhost, makeAvatar, makeSword, makeMarker, makeBarrier, Fx, Decals } from './entities.js';
 import { drawScare, bloodScreenURL } from './textures.js';
 import { createPost } from './post.js';
-import { Sim, TYPE_IDX, ST_IDX, STANCE_IDX, ROLE_IDX, TIME_LIMIT, wrap } from './sim.js';
+import { Sim, TYPE_IDX, ST_IDX, STANCE_IDX, ROLE_IDX, TIME_LIMIT, BARRIER, wrap } from './sim.js';
 
 const $ = (id) => document.getElementById(id);
 const EYE = 1.55;
 const EYE_CROUCH = 0.95;
+const FLASH = 30; // 懐中電灯の最大光量
+const FLASH_SURFACE = 0.55; // 照らされた壁・床の目標の明るさ（近づくと自動で絞る）
 const NOISE_LV = { idle: 0, crouch: 0, walk: 1, run: 3 };
 const HUNTING = new Set(['alert', 'chase', 'windup', 'lunge']);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -44,7 +46,7 @@ export class Game {
     const [mx, mz] = start[this.role];
     this.me = {
       x: mx, z: mz, yaw: 0, pitch: 0, down: false, hp: 100, gauge: 0, revive: 0, salt: 2, guard: false, stamina: 1,
-      crouch: false, stance: 'idle', dodgeT: -1, dodgeCd: 0, dodgeX: 0, dodgeZ: 0,
+      crouch: false, stance: 'idle', dodgeT: -1, dodgeCd: 0, dodgeX: 0, dodgeZ: 0, bars: BARRIER.uses,
     };
     this.eye = EYE;
     const [px, pz] = start[this.partnerRole];
@@ -55,7 +57,8 @@ export class Game {
     this.pAvatar.root.traverse((o) => { if (o.isMesh && o !== this.pAvatar.silhouette) o.castShadow = true; });
 
     // 両役とも懐中電灯（指示役は少し青白い）
-    this.flash = new THREE.SpotLight(this.role === 'seer' ? 0xdfe6ff : 0xfff1d6, 40, 22, 0.5, 0.55, 1.6);
+    this.flash = new THREE.SpotLight(this.role === 'seer' ? 0xdfe6ff : 0xfff1d6, FLASH, 20, 0.55, 0.75, 1.7);
+    this.flashDim = 0.3;
     this.flash.position.set(0.15, -0.1, 0);
     this.flash.target.position.set(0, 0, -1);
     this.flash.shadow.mapSize.set(1024, 1024);
@@ -76,6 +79,7 @@ export class Game {
 
     this.ghosts = new Map();
     this.markers = [];
+    this.barrierViews = new Map();
     this.fx = new Fx(this.scene);
     this.decals = new Decals(this.scene);
     this.time = 0;
@@ -134,7 +138,7 @@ export class Game {
   onNet(msg) {
     if (this.isHost) {
       if (msg.t === 'ps') this.sim.setPlayer(this.partnerRole, msg);
-      else if (msg.t === 'atk' || msg.t === 'salt' || msg.t === 'mark' || msg.t === 'ping') this.sim.input(this.partnerRole, msg);
+      else if (['atk', 'salt', 'mark', 'ping', 'barrier'].includes(msg.t)) this.sim.input(this.partnerRole, msg);
     } else if (msg.t === 'snap') this.applySnap(msg);
     else if (msg.t === 'ev') this.onEvent(msg.ev);
   }
@@ -147,7 +151,10 @@ export class Game {
     if (this.role === 'exo') {
       this.me.hp = mine[5];
       this.me.salt = mine[8];
-    } else this.me.gauge = mine[5];
+    } else {
+      this.me.gauge = mine[5];
+      this.me.bars = mine[7];
+    }
     const p = this.partner;
     p.tx = other[0]; p.tz = other[1]; p.tyaw = other[2];
     p.down = !!other[4]; p.stat = other[5]; p.revive = other[6]; p.guard = !!other[7];
@@ -157,6 +164,7 @@ export class Game {
     if (s.bd && !this.world.exitActive) this.world.setExitActive();
     for (const id of s.it) this.world.removeItem(id);
     this.syncGhosts(s.G);
+    this.syncBarriers(s.B || []);
   }
 
   syncGhosts(G) {
@@ -306,6 +314,16 @@ export class Game {
         if (this.role === 'exo') vib(30);
         break;
       }
+      case 'barrier':
+        this.sfx.play('barrier', { x: ev.x, y: 1, z: ev.z });
+        this.toast(this.role === 'seer' ? `結界を張った（残り${ev.left}）` : '相棒が結界を張った。中にいれば襲われない', 2);
+        break;
+      case 'bind':
+        this.fx.burst(ev.x, ev.y, ev.z, 0xffd070, 50, 3, 0.9, 0.1, -1);
+        this.sfx.play('bind', ev);
+        this.toast(this.role === 'seer' ? '霊を縛った！今だ！' : '結界が霊を捕らえた！', 1.8);
+        if (this.role === 'exo') vib([60, 30, 60]);
+        break;
       case 'ping':
         this.showPing(ev);
         break;
@@ -488,12 +506,74 @@ export class Game {
           this.act({ t: 'mark', ...this.pickTarget() });
         } else this.toast('印の力が戻るまで待て', 1);
       }
+      if (inp.pressed('barrier')) {
+        if (this.me.bars > 0) this.act({ t: 'barrier', ...this.pickBarrierPoint() });
+        else this.toast('結界の力は尽きた', 1.2);
+      }
       for (const k of ['now', 'danger', 'wait']) {
         if (inp.pressed(k) && this.pingCd <= 0) {
           this.pingCd = 0.5;
           this.act({ t: 'ping', k });
         }
       }
+    }
+  }
+
+  // 結界を張る場所：見ている先の床（最大6m）。壁や家具の中なら自分の足元
+  pickBarrierPoint() {
+    const me = this.me;
+    this.raycaster.setFromCamera({ x: 0, y: 0 }, this.camera);
+    this.raycaster.far = 6.5;
+    const hit = this.raycaster.intersectObjects(this.world.raycast, false)[0];
+    const dir = this.raycaster.ray.direction;
+    let x, z;
+    if (hit) {
+      x = hit.point.x - dir.x * 0.4;
+      z = hit.point.z - dir.z * 0.4;
+    } else {
+      x = me.x - Math.sin(me.yaw) * 3;
+      z = me.z - Math.cos(me.yaw) * 3;
+    }
+    const h = Math.hypot(x - me.x, z - me.z);
+    if (h > 6) {
+      x = me.x + ((x - me.x) / h) * 6;
+      z = me.z + ((z - me.z) / h) * 6;
+    }
+    if (M.blocksPlayerFn(this.sealOpen)(M.cellOf(x), M.cellOf(z)) >= 0) { x = me.x; z = me.z; }
+    return { x, z };
+  }
+
+  syncBarriers(B) {
+    const seen = new Set();
+    for (const [id, x, z, left] of B) {
+      seen.add(id);
+      let b = this.barrierViews.get(id);
+      if (!b) {
+        b = makeBarrier(BARRIER.r);
+        b.root.position.set(x, 0, z);
+        this.scene.add(b.root);
+        this.barrierViews.set(id, b);
+      }
+      b.left = left;
+    }
+    for (const [id, b] of this.barrierViews) {
+      if (seen.has(id)) continue;
+      this.scene.remove(b.root);
+      b.mats.forEach((m) => m.dispose());
+      this.barrierViews.delete(id);
+    }
+  }
+
+  updateBarriers(dt) {
+    for (const b of this.barrierViews.values()) {
+      b.papers.rotation.y += dt * 0.9;
+      // 残り1.5秒で明滅しながら消えていく
+      const fade = b.left < 1.5 ? b.left / 1.5 * (0.6 + Math.random() * 0.4) : 1;
+      const pulse = 0.85 + Math.sin(this.time * 5) * 0.15;
+      b.mats[0].opacity = 0.9 * fade * pulse;
+      b.mats[1].opacity = 0.05 * fade;
+      b.mats[2].opacity = 0.2 * fade * pulse;
+      b.mats[3].opacity = fade;
     }
   }
 
@@ -540,6 +620,7 @@ export class Game {
     this.updatePartner(dt);
     this.updateGhostViews(dt);
     this.updateMarkers();
+    this.updateBarriers(dt);
     this.fx.update(dt);
     this.decals.update(dt);
     this.world.update(dt, this.time);
@@ -639,9 +720,11 @@ export class Game {
       // ---- 動き ----
       if (crawl) {
         V.body.rotation.z = ease(V.body.rotation.z, v.ceil ? Math.PI : 0, 6);
-        V.body.rotation.x = ease(V.body.rotation.x, v.st === 'windup' ? -0.35 * wp : v.st === 'lunge' ? 0.2 : 0, 10);
+        // 構えで上体を起こし、突進で床へ伏せる
+        V.body.rotation.x = ease(V.body.rotation.x, v.st === 'windup' ? 0.15 + 0.5 * wp : v.st === 'lunge' ? -0.05 : 0.15, 10);
         V.ring.position.y = V.fan.position.y = -v.y + 0.03;
         const moving = Math.hypot(v.x - (v.px ?? v.x), v.z - (v.pz ?? v.z)) > dt * 0.3;
+        v.moving = moving;
         V.legs.forEach((l, i) => { l.pivot.rotation.x = moving ? Math.sin(t * 14 + i * Math.PI) * 0.35 : 0; });
       } else {
         V.body.position.y = 0.12 + Math.sin(t * 1.7 + v.seed) * 0.07;
@@ -756,9 +839,19 @@ export class Game {
         u.uTime.value = t;
         u.uDissolve.value = 0;
         u.uTilt.value = V.head.rotation.z;
-        u.uArms.value = ease(u.uArms.value, clamp(raise * 0.85, -0.2, 2.1), v.st === 'lunge' ? 25 : 10);
-        u.uNod.value = ease(u.uNod.value, v.st === 'windup' ? 0.35 * wp : v.st === 'lunge' ? -0.3 : v.st === 'alert' ? -0.15 : 0.08, 10);
-        u.uLunge.value = ease(u.uLunge.value, v.st === 'lunge' ? 1 : v.st === 'windup' ? -0.2 * wp : 0, 20);
+        if (crawl) {
+          // 腕を頭の先へ伸ばし、左右交互に床を掻いて進む。顔は起こして前を睨む
+          const stroke = v.moving ? Math.sin(t * 7 + v.seed) : 0;
+          u.uArms.value = ease(u.uArms.value, v.st === 'windup' ? 2.3 - wp * 0.7 : v.st === 'lunge' ? 2.9 : 2.25, 12);
+          u.uArmsAlt.value = ease(u.uArmsAlt.value, stroke * 0.45, 12);
+          u.uNod.value = ease(u.uNod.value, v.st === 'windup' ? 1.5 : 1.15, 10);
+          u.uStretch.value = ease(u.uStretch.value, v.st === 'lunge' ? 1 : v.st === 'windup' ? -0.15 * wp : 0, 20);
+          u.uWave.value = v.moving ? 2.5 : 1;
+        } else {
+          u.uArms.value = ease(u.uArms.value, clamp(raise * 0.85, -0.2, 2.1), v.st === 'lunge' ? 25 : 10);
+          u.uNod.value = ease(u.uNod.value, v.st === 'windup' ? 0.35 * wp : v.st === 'lunge' ? -0.3 : v.st === 'alert' ? -0.15 : 0.08, 10);
+          u.uLunge.value = ease(u.uLunge.value, v.st === 'lunge' ? 1 : v.st === 'windup' ? -0.2 * wp : 0, 20);
+        }
         u.uShake.value = (v.glitch > 0 ? 1.2 : 0) + (v.st === 'windup' ? wp * 0.5 : 0) + (v.st === 'stun' ? 0.8 : 0);
         u.uGlow.value = v.mat ? 0.3 : 0;
         u.uRim.value = v.mat ? 1.2 : 0.6;
@@ -808,6 +901,24 @@ export class Game {
     arrow.style.transform = `translate(-50%,-50%) rotate(${rel}rad)`;
   }
 
+  // 懐中電灯：照らしている先（壁・床・天井）までの距離に応じて光量を絞り、
+  // 目の前の壁が白飛びして前が見えなくなるのを防ぐ
+  updateFlashlight(dt, flicker) {
+    const me = this.me, cam = this.camera;
+    const dir = this.tmpV.set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const blocks = M.blocksSightFn(this.sealOpen);
+    let d = 8;
+    for (let s = 0.2; s < 8; s += 0.15) {
+      const x = cam.position.x + dir.x * s, y = cam.position.y + dir.y * s, z = cam.position.z + dir.z * s;
+      if (y <= 0 || y >= M.WALL_H || blocks(M.cellOf(x), M.cellOf(z)) >= 0) { d = s; break; }
+    }
+    // 照らされた面の明るさが距離によらずほぼ一定になるよう、距離^減衰率 に比例させる（遠くは FLASH で頭打ち）
+    const target = Math.min(1, (FLASH_SURFACE * d ** 1.7) / FLASH);
+    // 壁に向いた瞬間に眩しくならないよう、絞るのは速く、戻すのはゆっくり
+    this.flashDim += (target - this.flashDim) * Math.min(1, dt * (target < this.flashDim ? 25 : 6));
+    this.flash.intensity = FLASH * this.flashDim * (flicker ? 0.15 : 1);
+  }
+
   // 除霊役：霊が近いと画面ノイズ・振動・ライトのちらつき
   updatePresence(dt) {
     let p = 0;
@@ -820,7 +931,7 @@ export class Game {
     }
     this.presence += (p - this.presence) * Math.min(1, dt * 4);
     const pr = this.presence;
-    this.flash.intensity = pr > 0.35 && Math.random() < pr * 0.25 ? 6 : 40;
+    this.updateFlashlight(dt, pr > 0.35 && Math.random() < pr * 0.25);
     if (this.role !== 'exo') return;
     const nEl = this.noiseCv;
     nEl.style.opacity = (pr * 0.4).toFixed(3);
@@ -866,6 +977,7 @@ export class Game {
     }
     $('salt-n').textContent = me.salt;
     $('mark-n').textContent = this.charges;
+    $('bar-n').textContent = me.bars;
 
     // 気配（足音の大きさ）と、霊に追われているか
     const lv = NOISE_LV[me.stance] ?? 0;

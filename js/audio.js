@@ -175,6 +175,16 @@ export class Sfx {
         this.burst('bandpass', 700, 400, 6, 2.0, 0.15, d);
         break;
       case 'dodge': this.burst('bandpass', 1800, 400, 1.5, 0.18, 0.25, d); break;
+      case 'barrier':
+        [1046, 1568, 2093].forEach((f, i) => this.tone('sine', f, f, 1.6, 0.25 / (i + 1), d, i * 0.03));
+        this.burst('highpass', 5000, 9000, 1, 0.8, 0.08, d);
+        this.tone('sine', 130, 130, 1.2, 0.2, d);
+        break;
+      case 'bind':
+        this.tone('square', 220, 180, 0.25, 0.25, d);
+        this.burst('bandpass', 3000, 1200, 8, 0.4, 0.4, d);
+        this.tone('sine', 880, 880, 0.8, 0.2, d, 0.05);
+        break;
       case 'scream':
         this.tone('sawtooth', 780, 330, 0.7, 0.45, d);
         this.tone('sawtooth', 830, 350, 0.7, 0.3, d);

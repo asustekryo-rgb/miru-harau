@@ -132,6 +132,8 @@ body[data-role="seer"] #bar-me i { background: #7d8fd8; }
 .act.a6 { right: 160px; bottom: 72px; }
 .act.a7 { right: 76px; bottom: 150px; }
 .act.a8 { right: 136px; bottom: 150px; }
+.act.a9 { right: 14px; bottom: 170px; }
+.act.kekkai { color: #ffd070; border-color: rgba(255, 200, 100, 0.6); }
 .act.small { width: 50px; height: 50px; font-size: 18px; }
 .act.lit { background: rgba(60, 90, 150, 0.7); border-color: #9fc4ff; }
 .act.now { color: #ffe27a; font-size: 18px; }

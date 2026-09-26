@@ -211,9 +211,10 @@ function markers(root, body, boss) {
 function makeModelGhost(type) {
   const T = tex();
   const boss = type === 'boss';
-  const height = boss ? 2.55 : 1.75;
-  const baseTint = boss ? 0xd88a8a : 0xffffff;
-  const B = makeModelBody(height, baseTint);
+  const crawl = type === 'crawl';
+  const height = boss ? 2.55 : crawl ? 1.6 : 1.75;
+  const baseTint = boss ? 0xd88a8a : crawl ? 0xc8ccd8 : 0xffffff;
+  const B = makeModelBody(height, baseTint, crawl ? 'crawl' : 'stand');
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -255,7 +256,7 @@ function makeModelGhost(type) {
     root, body, head, eyes, mouth, ...mk, arms, legs: [], guts: [], type, meshes, mats: [B.mat, ...extraMats],
     model: B,
     baseScale: 1,
-    headTilt: 0.35,
+    headTilt: crawl ? 0.25 : 0.35,
     weakPos: { wander: [0, 1.0, 0.22], boss1: [0, 1.45, -0.34], boss2: [0, 1.45, 0.34], boss3: [0, 2.35, 0] },
     look(opacity, tint = 0xffffff) {
       // 奥の面が透けて白っぽくならないよう、深度は常に書く。ほぼ不透明なら不透明として描く
@@ -287,7 +288,7 @@ function makeModelGhost(type) {
 }
 
 export function makeGhost(type) {
-  if (type !== 'crawl' && hasGhostModel()) return makeModelGhost(type);
+  if (hasGhostModel()) return makeModelGhost(type);
   const T = tex();
   const boss = type === 'boss';
   const m = {
@@ -562,6 +563,49 @@ export function makeMarker() {
   sprite.renderOrder = 20;
   root.add(beam, ring, sprite);
   return { root, beam, ring, sprite, mats: [mat, ringMat, sprite.material] };
+}
+
+// 結界：床の光の輪＋立ち上る光の幕＋周りを巡る御札
+let veilTex = null;
+function veil() {
+  if (veilTex) return veilTex;
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 128, 0, 0);
+  gr.addColorStop(0, 'rgba(255,220,140,1)');
+  gr.addColorStop(0.35, 'rgba(255,200,110,0.35)');
+  gr.addColorStop(1, 'rgba(255,200,110,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 4, 128);
+  veilTex = new THREE.CanvasTexture(c);
+  return veilTex;
+}
+export function makeBarrier(r) {
+  const root = new THREE.Group();
+  const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: DS };
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffc860, opacity: 0.9, ...add });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.07, r, 64).rotateX(-Math.PI / 2), ringMat);
+  ring.position.y = 0.04;
+  const innerMat = new THREE.MeshBasicMaterial({ color: 0xffb040, opacity: 0.12, ...add });
+  const inner = new THREE.Mesh(new THREE.CircleGeometry(r, 48).rotateX(-Math.PI / 2), innerMat);
+  inner.position.y = 0.03;
+  const wallMat = new THREE.MeshBasicMaterial({ map: veil(), color: 0xffd080, opacity: 0.55, ...add });
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1.4, 48, 1, true), wallMat);
+  wall.position.y = 0.7;
+  root.add(ring, inner, wall);
+  const papers = new THREE.Group();
+  const paperMat = new THREE.SpriteMaterial({ map: ofuda('封'), transparent: true, depthWrite: false, fog: false });
+  for (let i = 0; i < 6; i++) {
+    const s = new THREE.Sprite(paperMat);
+    const a = (i / 6) * Math.PI * 2;
+    s.position.set(Math.cos(a) * r, 1.0 + (i % 2) * 0.35, Math.sin(a) * r);
+    s.scale.set(0.12, 0.3, 1);
+    papers.add(s);
+  }
+  root.add(papers);
+  return { root, papers, mats: [ringMat, innerMat, wallMat, paperMat] };
 }
 
 export class Fx {

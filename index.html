@@ -162,6 +162,7 @@
         <li><b>印</b>：画面中央の霊か場所に目印を付けます。霊に付けると、その間は除霊役にも霊がぼんやり見えます（3回まで、8秒で回復）</li>
         <li><b>今！／危／待</b>：除霊役のスマホを振動させる合図</li>
         <li><b>視</b>：押している間ズーム</li>
+        <li><b>結</b>：見ている先（最大6m）に結界を張る。1ステージ3回、10秒間。霊は中に入れず、中にいる人は襲われない。結界に触れた霊は2.5秒縛られて実体化し、除霊役にも姿が見える（主は1.2秒）</li>
       </ul>
       <h3>除霊役</h3>
       <p>霊は見えません。囁き声、振動、画面のノイズ、懐中電灯のちらつき、床に残る血の跡で気配を感じます。</p>
@@ -192,7 +193,7 @@
         <li>倒れた相棒のそばに3秒いると起こせます</li>
       </ul>
       <h3>PCでの操作</h3>
-      <p>WASDで移動、ドラッグか矢印キーで視点。C しゃがむ、Shift 走る、F 回避。除霊役：Space/J 攻撃、K 構え、L 塩。指示役：E 印、Q 今！、1 危、2 待、Z ズーム。</p>
+      <p>WASDで移動、ドラッグか矢印キーで視点。C しゃがむ、Shift 走る、F 回避。除霊役：Space/J 攻撃、K 構え、L 塩。指示役：E 印、R 結界、Q 今！、1 危、2 待、Z ズーム。</p>
       <button class="back">戻る</button>
     </div>
   </section>
@@ -237,6 +238,7 @@
     <button class="act seer a4" data-a="danger">危</button>
     <button class="act seer a7 small" data-a="wait">待</button>
     <button class="act seer a8 small" data-a="zoom">視</button>
+    <button class="act seer a9 small kekkai" data-a="barrier">結<b id="bar-n">3</b></button>
   </div>
   <div id="rotate">スマホを横向きにしてください</div>
 </div>

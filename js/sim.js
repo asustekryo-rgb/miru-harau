@@ -19,6 +19,8 @@ const TYPES = {
 const SIGHT_MUL = { idle: 0.7, walk: 1, run: 1.25, crouch: 0.4 };
 const NOISE = { idle: 0, walk: 4, run: 11, crouch: 0 };
 const RESPAWN = { guard: 75, patrol: 90 };
+// 結界術：指示役が張る光の輪。霊は入れず、触れた霊は縛られて実体化する。中にいる者は攻撃を受けない
+export const BARRIER = { uses: 3, r: 1.7, dur: 10, bind: 2.5, bindBoss: 1.2 };
 
 const TAU = Math.PI * 2;
 export const wrap = (a) => ((((a + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -47,7 +49,7 @@ export class Sim {
     const sx = M.center(E.spawn.c), sz = M.center(E.spawn.r);
     const base = { yaw: 0, pitch: 0, guard: false, down: false, revive: 0, lastHurt: -99, stance: 'idle', dodging: false };
     this.players = {
-      seer: { ...base, role: 'seer', x: sx - 0.7, z: sz + 0.3, gauge: 0, present: !solo || opts.soloRole === 'seer' },
+      seer: { ...base, role: 'seer', x: sx - 0.7, z: sz + 0.3, gauge: 0, bars: BARRIER.uses, present: !solo || opts.soloRole === 'seer' },
       exo: { ...base, role: 'exo', x: sx + 0.7, z: sz + 0.3, hp: 100, salt: 2, present: !solo || opts.soloRole === 'exo' },
     };
     this.nextId = 0;
@@ -55,6 +57,8 @@ export class Sim {
     this.respawns = [];
     this.stats = { swings: 0, hits: 0, weakHits: 0, exorcised: 0, dmg: 0 };
     this.markId = 0;
+    this.barriers = [];
+    this.barrierId = 0;
   }
 
   makeGhost(type, x, z, opts = {}) {
@@ -97,6 +101,12 @@ export class Sim {
     else if (m.t === 'mark' && role === 'seer') {
       this.emit({ e: 'marker', id: ++this.markId, gid: m.gid || null, x: r2(m.x), z: r2(m.z), dur: m.gid ? 7 : 8 });
     } else if (m.t === 'ping') this.emit({ e: 'ping', k: m.k, from: role });
+    else if (m.t === 'barrier' && role === 'seer' && p.bars > 0) {
+      p.bars--;
+      const b = { id: ++this.barrierId, x: r2(m.x), z: r2(m.z), until: this.time + BARRIER.dur, bound: new Set() };
+      this.barriers.push(b);
+      this.emit({ e: 'barrier', id: b.id, x: b.x, z: b.z, left: p.bars });
+    }
   }
 
   update(dt) {
@@ -104,6 +114,7 @@ export class Sim {
     this.time += dt;
     for (const g of this.ghosts) this.updateGhost(g, dt);
     this.ghosts = this.ghosts.filter((g) => !(g.st === 'dead' && g.t <= 0));
+    this.barriers = this.barriers.filter((b) => b.until > this.time);
     this.updateRespawns();
     this.updateItems();
     this.updatePlayers(dt);
@@ -213,6 +224,8 @@ export class Sim {
   updateGhost(g, dt) {
     const T = TYPES[g.type];
     const blocks = this.ghostBlocks(g);
+    g.px = g.x;
+    g.pz = g.z;
     g.t -= dt;
     g.cd -= dt;
     if (g.type === 'crawl' && !MAT.has(g.st) && g.st !== 'dead') {
@@ -325,8 +338,39 @@ export class Sim {
         break;
       }
     }
+    this.enforceBarriers(g);
     g.mat = MAT.has(g.st);
     if (g.mat) g.matEnd = this.time;
+  }
+
+  shielded(p) {
+    return this.barriers.some((b) => Math.hypot(p.x - b.x, p.z - b.z) < BARRIER.r);
+  }
+
+  // 霊を結界の外へ押し戻し、初めて触れた霊は縛る
+  enforceBarriers(g) {
+    if (g.st === 'dead' || g.st === 'dormant') return;
+    const lim = BARRIER.r + 0.35;
+    for (const b of this.barriers) {
+      const dx = g.x - b.x, dz = g.z - b.z, d = Math.hypot(dx, dz);
+      if (d >= lim) continue;
+      const k = d > 1e-3 ? lim / d : 1;
+      const nx = b.x + (d > 1e-3 ? dx : 1) * k, nz = b.z + (d > 1e-3 ? dz : 0) * k;
+      if (M.circleHits(nx, nz, 0.3, this.ghostBlocks(g))) {
+        // 押し出し先が壁なら、この更新の前の位置へ戻す
+        g.x = g.px ?? g.x;
+        g.z = g.pz ?? g.z;
+      } else {
+        g.x = nx;
+        g.z = nz;
+      }
+      if (b.bound.has(g.id) || g.st === 'roar') continue;
+      b.bound.add(g.id);
+      this.setSt(g, 'stun', g.type === 'boss' ? BARRIER.bindBoss : BARRIER.bind);
+      g.reveal = this.time + (g.type === 'boss' ? BARRIER.bindBoss : BARRIER.bind);
+      g.hitSet = null;
+      this.emit({ e: 'bind', gid: g.id, x: r2(g.x), y: r2(g.y + 1), z: r2(g.z) });
+    }
   }
 
   giveUp(g, role) {
@@ -340,7 +384,7 @@ export class Sim {
     const fx = -Math.sin(g.yaw), fz = -Math.cos(g.yaw);
     const hx = g.x + fx * 0.4, hz = g.z + fz * 0.4;
     for (const p of this.targets) {
-      if (g.hitSet.has(p.role)) continue;
+      if (g.hitSet.has(p.role) || this.shielded(p)) continue;
       if (Math.hypot(p.x - hx, p.z - hz) > T.hitR) continue;
       g.hitSet.add(p.role);
       if (p.dodging) this.emit({ e: 'dodged', role: p.role });
@@ -350,7 +394,7 @@ export class Sim {
 
   slam(g) {
     for (const p of this.targets) {
-      if (Math.hypot(p.x - g.x, p.z - g.z) > 3.6) continue;
+      if (Math.hypot(p.x - g.x, p.z - g.z) > 3.6 || this.shielded(p)) continue;
       if (p.dodging) this.emit({ e: 'dodged', role: p.role });
       else this.hurt(p, g);
     }
@@ -583,7 +627,7 @@ export class Sim {
       so: this.sealOpen ? 1 : 0,
       bd: this.bossDead ? 1 : 0,
       P: {
-        seer: [r2(seer.x), r2(seer.z), r2(seer.yaw), r2(seer.pitch), seer.down ? 1 : 0, Math.round(seer.gauge), r2(seer.revive), 0, 0, st(seer)],
+        seer: [r2(seer.x), r2(seer.z), r2(seer.yaw), r2(seer.pitch), seer.down ? 1 : 0, Math.round(seer.gauge), r2(seer.revive), seer.bars, 0, st(seer)],
         exo: [r2(exo.x), r2(exo.z), r2(exo.yaw), r2(exo.pitch), exo.down ? 1 : 0, Math.round(exo.hp), r2(exo.revive), exo.guard ? 1 : 0, exo.salt, st(exo)],
       },
       G: this.ghosts.map((g) => [
@@ -593,6 +637,7 @@ export class Sim {
         Math.max(0, ROLE_IDX.indexOf(g.target)),
       ]),
       it: this.items.filter((i) => i.taken).map((i) => i.id),
+      B: this.barriers.map((b) => [b.id, b.x, b.z, r2(b.until - this.time)]),
     };
   }
 }
