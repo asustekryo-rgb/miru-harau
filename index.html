@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>視る者、祓う者</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="screens">
+  <section id="s-title" class="screen active">
+    <div class="title-wrap">
+      <h1><span>視る者</span><span class="sep">、</span><span>祓う者</span></h1>
+      <p class="sub">二人で挑む、除霊ホラー</p>
+      <div class="menu">
+        <button id="btn-host" class="big">部屋を作る<small>QRを表示して待つ</small></button>
+        <button id="btn-join" class="big">部屋に入る<small>相手のQRを読み取る</small></button>
+      </div>
+      <div class="menu small">
+        <button id="btn-help">遊び方</button>
+        <button id="btn-solo">ひとりで練習</button>
+        <button id="btn-local">同じ端末でテスト</button>
+      </div>
+      <div id="solo-pick" class="pick" hidden>
+        <button data-solo="exo">除霊役で練習</button>
+        <button data-solo="seer">指示役で練習</button>
+      </div>
+      <div id="local-pick" class="pick" hidden>
+        <button data-local="host">ホスト</button>
+        <button data-local="join">参加</button>
+        <p id="local-status" class="note">同じブラウザで2つのタブを開き、片方でホスト、もう片方で参加を押します。</p>
+      </div>
+      <p class="note">二台のスマホを同じWi-Fi（またはテザリング）につないで遊びます。<br>同じ部屋で声を掛け合ってください。</p>
+    </div>
+  </section>
+
+  <section id="s-host" class="screen">
+    <div class="panel">
+      <h2>部屋を作る</h2>
+      <div class="qr-box"><canvas id="host-qr"></canvas></div>
+      <p id="host-status" class="status">準備中…</p>
+      <button id="host-scan" class="primary" disabled>相手のQRを読み取る</button>
+      <div class="scan" id="host-scanbox" hidden><video id="host-video" playsinline muted></video></div>
+      <details class="manual">
+        <summary>QRが使えないとき（コードを手でやりとり）</summary>
+        <label>自分のコード<textarea id="host-code" readonly></textarea></label>
+        <button id="host-copy">コピー</button>
+        <label>相手のコードを貼り付け<textarea id="host-answer"></textarea></label>
+        <button id="host-answer-go">接続</button>
+      </details>
+      <button class="back">戻る</button>
+    </div>
+  </section>
+
+  <section id="s-join" class="screen">
+    <div class="panel">
+      <h2>部屋に入る</h2>
+      <div id="join-step1">
+        <button id="join-scan" class="primary">ホストのQRを読み取る</button>
+        <div class="scan" id="join-scanbox" hidden><video id="join-video" playsinline muted></video></div>
+        <details class="manual">
+          <summary>QRが使えないとき（コードを手でやりとり）</summary>
+          <label>ホストのコードを貼り付け<textarea id="join-offer"></textarea></label>
+          <button id="join-offer-go">決定</button>
+        </details>
+      </div>
+      <div id="join-step2" hidden>
+        <div class="qr-box"><canvas id="join-qr"></canvas></div>
+        <details class="manual">
+          <summary>コードで渡す</summary>
+          <label>自分のコード<textarea id="join-code" readonly></textarea></label>
+          <button id="join-copy">コピー</button>
+        </details>
+      </div>
+      <p id="join-status" class="status"></p>
+      <button class="back">戻る</button>
+    </div>
+  </section>
+
+  <section id="s-lobby" class="screen">
+    <div class="panel">
+      <h2>接続しました</h2>
+      <div class="roles">
+        <div class="role-card" id="card-seer">
+          <h3 data-role-name="seer"></h3>
+          <p>霊が見える。<br>戦えない。<br>印と合図で導く。</p>
+          <span class="who"></span>
+        </div>
+        <div class="role-card" id="card-exo">
+          <h3 data-role-name="exo"></h3>
+          <p>霊が見えない。<br>木刀で祓う。<br>声を頼りに戦う。</p>
+          <span class="who"></span>
+        </div>
+      </div>
+      <button id="lobby-swap">役割を入れ替える</button>
+      <button id="lobby-start" class="primary">開始</button>
+      <p id="lobby-wait" class="status">ホストが開始するのを待っています…</p>
+      <p class="note">除霊役はイヤホン推奨。スマホは横向きで。</p>
+      <button class="back">退出</button>
+    </div>
+  </section>
+
+  <section id="s-result" class="screen">
+    <div class="panel">
+      <h2 id="res-title"></h2>
+      <p id="res-reason"></p>
+      <div id="res-rank"></div>
+      <table id="res-stats"></table>
+      <button id="res-again" class="primary">もう一度</button>
+      <p id="res-wait" class="status">ホストの再開を待っています…</p>
+      <button id="res-title-btn">タイトルへ</button>
+    </div>
+  </section>
+
+  <section id="s-help" class="screen">
+    <div class="panel help">
+      <h2>遊び方</h2>
+      <h3>目的</h3>
+      <p>屋敷に散らばる御札を3枚集めると、奥の間の封印が解けます。奥の間の「主」を祓い、夜明けまでに二人そろって玄関から脱出してください。</p>
+      <h3>指示役</h3>
+      <p>霊がすべて見えますが、攻撃できません。霊が赤く光っている間（実体化中）だけ攻撃が当たります。弱点（赤い光の玉）の位置も見えます。</p>
+      <ul>
+        <li><b>印</b>：画面中央の霊か場所に目印を付けます。霊に付けた印は霊について動きます（3回まで、8秒で回復）</li>
+        <li><b>今！／危／待</b>：除霊役のスマホを振動させる合図</li>
+        <li><b>視</b>：押している間ズーム</li>
+      </ul>
+      <h3>除霊役</h3>
+      <p>霊は見えません。囁き声、振動、画面のノイズ、懐中電灯のちらつきで気配を感じます。</p>
+      <ul>
+        <li><b>祓</b>：木刀を振る。実体化中の霊にだけ当たる</li>
+        <li><b>構</b>：正面からの攻撃を軽減</li>
+        <li><b>塩</b>：前方の霊を5秒間見えるようにし、動きを止める</li>
+        <li><b>走</b>：押している間ダッシュ</li>
+      </ul>
+      <h3>コツ</h3>
+      <ul>
+        <li>彷徨う霊の弱点は背中。指示役が囮になり、除霊役が背後から斬ると2倍のダメージ</li>
+        <li>這い女は天井と床を移動します。天井にいるときは上を、床にいるときは下を向いて振ること</li>
+        <li>主の弱点は段階ごとに「正面 → 背中 → 頭上」と移ります。床の赤い輪は範囲攻撃の予兆です</li>
+        <li>倒れた相棒のそばに3秒いると起こせます</li>
+      </ul>
+      <h3>PCでの操作</h3>
+      <p>WASDで移動、ドラッグか矢印キーで視点。除霊役：Space/J 攻撃、K 構え、L 塩、Shift 走る。指示役：E 印、Q 今！、1 危、2 待、Z ズーム。</p>
+      <button class="back">戻る</button>
+    </div>
+  </section>
+</div>
+
+<div id="hud" hidden>
+  <div id="touch"></div>
+  <canvas id="noise" width="96" height="54"></canvas>
+  <div id="vignette"></div>
+  <div id="hurt"></div>
+  <div id="breath"></div>
+  <div id="tl"><div id="obj"></div><div id="timer"></div></div>
+  <div id="tr">
+    <div class="bar" id="bar-me"><span class="lbl"></span><i></i></div>
+    <div class="bar small" id="bar-partner"><span class="lbl"></span><i></i></div>
+  </div>
+  <button id="btn-fs" title="全画面">⛶</button>
+  <div id="room"></div>
+  <div id="crosshair"></div>
+  <div id="msg"></div>
+  <div id="ping"></div>
+  <div id="arrow" hidden>▲</div>
+  <div id="revive" hidden><span></span><div class="track"><i></i></div></div>
+  <div id="down" hidden>倒れた…</div>
+  <div id="joy"><div id="joy-knob"></div></div>
+  <div id="btns">
+    <button class="act exo a1" data-a="attack">祓</button>
+    <button class="act exo a2" data-a="guard">構</button>
+    <button class="act exo a3" data-a="salt">塩<b id="salt-n">2</b></button>
+    <button class="act exo a4" data-a="dash">走</button>
+    <button class="act seer a1" data-a="mark">印<b id="mark-n">3</b></button>
+    <button class="act seer a2 now" data-a="now">今!</button>
+    <button class="act seer a3" data-a="danger">危</button>
+    <button class="act seer a4" data-a="wait">待</button>
+    <button class="act seer a5" data-a="zoom">視</button>
+  </div>
+  <div id="rotate">スマホを横向きにしてください</div>
+</div>
+
+<div id="netlost" hidden>
+  <div class="panel">
+    <h2>接続が切れました</h2>
+    <p>もう一度、部屋を作り直してください。</p>
+    <button id="netlost-btn" class="primary">タイトルへ</button>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
