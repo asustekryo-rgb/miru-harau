@@ -30,6 +30,7 @@
         <button id="btn-local">同じ端末でテスト</button>
       </div>
       <div id="solo-pick" class="pick" hidden>
+        <div class="stage-pick"></div>
         <button data-solo="exo">除霊役で練習</button>
         <button data-solo="seer">指示役で練習</button>
       </div>
@@ -100,6 +101,7 @@
           <span class="who"></span>
         </div>
       </div>
+      <div class="stage-pick"></div>
       <button id="lobby-swap">役割を入れ替える</button>
       <button id="lobby-start" class="primary">開始</button>
       <p id="lobby-wait" class="status">ホストが開始するのを待っています…</p>
@@ -114,7 +116,8 @@
       <p id="res-reason"></p>
       <div id="res-rank"></div>
       <table id="res-stats"></table>
-      <button id="res-again" class="primary">もう一度</button>
+      <button id="res-next" class="primary" hidden></button>
+      <button id="res-again">もう一度</button>
       <p id="res-wait" class="status">ホストの再開を待っています…</p>
       <button id="res-title-btn">タイトルへ</button>
     </div>
@@ -124,7 +127,7 @@
     <div class="panel help">
       <h2>遊び方</h2>
       <h3>目的</h3>
-      <p>屋敷に散らばる御札を3枚集めると、奥の間の封印が解けます。奥の間の「主」を祓い、夜明けまでに二人そろって玄関から脱出してください。</p>
+      <p>ステージは「廃屋敷」「廃校」「廃病院」の3つ。散らばる御札を3枚集めると封印が解け、その奥にいる「主」と戦えます。主を祓い、夜明けまでに二人そろって出口から脱出してください。クリアすると次のステージに進めます。</p>
       <h3>指示役</h3>
       <p>屋敷は暗く、懐中電灯だけが頼りです。ただし霊だけは闇の中に浮かんで見えます。霊が赤く光っている間（実体化中）だけ攻撃が当たります。弱点（赤い光の玉）の位置と、攻撃の範囲（床の赤い扇）も見えます。</p>
       <ul>
@@ -180,6 +183,9 @@
   </div>
   <button id="btn-fs" title="全画面">⛶</button>
   <div id="room"></div>
+  <div id="stage-title"></div>
+  <div id="bloodscreen"></div>
+  <canvas id="scare" width="512" height="512"></canvas>
   <div id="crosshair"></div>
   <div id="msg"></div>
   <div id="ping"></div>

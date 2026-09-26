@@ -4,6 +4,7 @@ import { Game, ROLE_NAME } from './game.js';
 import { RtcTransport, LocalTransport, drawQR, Scanner } from './net.js';
 import { Sfx } from './audio.js';
 import { Input } from './input.js';
+import { STAGES } from './map.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: false, powerPreference: 'high-performance' });
@@ -17,6 +18,7 @@ let net = null;
 let isHost = false;
 let solo = false;
 let myRole = 'seer';
+let stage = 0;
 let game = null;
 let camStream = null;
 let wakeLock = null;
@@ -207,15 +209,33 @@ function send(msg, fast = false) {
 function onNetMsg(msg) {
   if (msg.t === 'lobby' && !isHost) {
     myRole = msg.hostRole === 'seer' ? 'exo' : 'seer';
+    stage = msg.stage || 0;
     renderLobby();
     if (!game) show('s-lobby');
   } else if (msg.t === 'start' && !isHost) {
+    stage = msg.stage || 0;
     startGame();
   } else game?.onNet(msg);
 }
 
+// ステージ選択（ホストとひとり練習のみ変更できる）
+function renderStagePick() {
+  document.querySelectorAll('.stage-pick').forEach((box) => {
+    const editable = isHost || solo || box.closest('#solo-pick');
+    box.innerHTML = STAGES.map((S, i) => `<button data-stage="${i}" class="${i === stage ? 'on' : ''}" ${editable ? '' : 'disabled'}><small>${S.night}</small>${S.name}</button>`).join('');
+    box.querySelectorAll('button').forEach((b) => {
+      b.onclick = () => {
+        stage = +b.dataset.stage;
+        renderStagePick();
+        if (isHost && net?.isOpen) sendLobby();
+      };
+    });
+  });
+}
+renderStagePick();
+
 function sendLobby() {
-  send({ t: 'lobby', hostRole: myRole });
+  send({ t: 'lobby', hostRole: myRole, stage });
   renderLobby();
 }
 
@@ -227,6 +247,7 @@ function renderLobby() {
   $('lobby-swap').hidden = !isHost;
   $('lobby-start').hidden = !isHost;
   $('lobby-wait').hidden = isHost;
+  renderStagePick();
 }
 $('lobby-swap').onclick = () => {
   myRole = myRole === 'seer' ? 'exo' : 'seer';
@@ -234,7 +255,7 @@ $('lobby-swap').onclick = () => {
 };
 $('lobby-start').onclick = () => {
   sfx.init();
-  send({ t: 'start' });
+  send({ t: 'start', stage });
   startGame();
 };
 
@@ -246,7 +267,7 @@ function startGame() {
   $('hud').hidden = false;
   document.body.classList.add('playing');
   input.reset();
-  game = new Game({ renderer, role: myRole, isHost, solo, sfx, input, send, onOver });
+  game = new Game({ renderer, role: myRole, isHost, solo, sfx, input, send, onOver, stage });
   window.__game = game;
   try {
     navigator.wakeLock?.request('screen').then((l) => { wakeLock = l; }).catch(() => {});
@@ -275,13 +296,20 @@ function onOver(ev) {
     ['受けた被害', Math.round(s.dmg)],
   ].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('');
   $('res-again').hidden = !isHost;
+  $('res-next').hidden = !isHost || !ev.win || stage >= STAGES.length - 1;
+  if (!$('res-next').hidden) $('res-next').textContent = `次へ：${STAGES[stage + 1].night}「${STAGES[stage + 1].name}」`;
   $('res-wait').hidden = isHost || solo;
   stopGame();
   show('s-result');
 }
-$('res-again').onclick = () => {
-  if (!solo) send({ t: 'start' });
+function restart() {
+  if (!solo) send({ t: 'start', stage });
   startGame();
+}
+$('res-again').onclick = restart;
+$('res-next').onclick = () => {
+  stage = Math.min(stage + 1, STAGES.length - 1);
+  restart();
 };
 $('res-title-btn').onclick = leave;
 $('netlost-btn').onclick = leave;

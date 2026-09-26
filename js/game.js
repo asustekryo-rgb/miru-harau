@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import * as M from './map.js';
 import { buildWorld } from './world.js';
 import { makeGhost, makeAvatar, makeSword, makeMarker, Fx, Decals } from './entities.js';
+import { drawScare, bloodScreenURL } from './textures.js';
 import { Sim, TYPE_IDX, ST_IDX, STANCE_IDX, ROLE_IDX, TIME_LIMIT, wrap } from './sim.js';
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +29,7 @@ export class Game {
   // opts: renderer, role, isHost, solo, sfx, input, send(msg, fast), onOver(ev)
   constructor(opts) {
     Object.assign(this, opts);
+    M.setStage(this.stage || 0);
     this.partnerRole = this.role === 'seer' ? 'exo' : 'seer';
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
@@ -96,9 +98,18 @@ export class Game {
     $('ping').className = '';
     $('hurt').style.opacity = 0;
     $('noise').style.opacity = 0;
-    this.toast(this.role === 'seer'
-      ? 'あなたは指示役。霊が見える。相棒に声で伝えよう'
-      : 'あなたは除霊役。霊は見えない。相棒の声を頼りに祓え', 4);
+    const title = $('stage-title');
+    title.innerHTML = `<small>${M.STAGE.night}</small>${M.STAGE.name}`;
+    title.className = '';
+    void title.offsetWidth;
+    title.className = 'show';
+    setTimeout(() => {
+      if (!this.over) {
+        this.toast(this.role === 'seer'
+          ? 'あなたは指示役。霊が見える。相棒に声で伝えよう'
+          : 'あなたは除霊役。霊は見えない。相棒の声を頼りに祓え', 4);
+      }
+    }, 2500);
   }
 
   // ---------- 通信 ----------
@@ -221,6 +232,8 @@ export class Game {
           vib(ev.guarded ? 40 : [120, 40, 80]);
           this.shake = ev.guarded ? 0.1 : 0.3;
           if (ev.guarded) this.toast('受け止めた', 1);
+          this.bloodScreen(ev.guarded ? 0.35 : 1);
+          if (!ev.guarded) this.showScare();
         } else this.toast('相棒が襲われている！', 1.2);
         break;
       }
@@ -320,6 +333,26 @@ export class Game {
     el.className = 'show ' + ev.k;
     vib(ev.k === 'now' ? [90, 30, 90] : ev.k === 'danger' ? [200, 80, 200] : 60);
     this.sfx.play(ev.k);
+  }
+
+  // 襲われた瞬間、画面いっぱいに霊の顔
+  showScare() {
+    const cv = $('scare');
+    drawScare(cv);
+    cv.className = '';
+    void cv.offsetWidth;
+    cv.className = 'show';
+    this.sfx.play('scream');
+  }
+
+  bloodScreen(k) {
+    const bs = $('bloodscreen');
+    if (!bs.style.backgroundImage) bs.style.backgroundImage = `url(${bloodScreenURL()})`;
+    bs.style.transition = 'none';
+    bs.style.opacity = k;
+    void bs.offsetWidth;
+    bs.style.transition = 'opacity 3s ease-in 0.8s';
+    bs.style.opacity = 0;
   }
 
   toast(text, sec = 1.8) {
@@ -605,6 +638,24 @@ export class Game {
         V.body.rotation.x = ease(V.body.rotation.x, lean, v.st === 'lunge' ? 25 : 8);
       }
       v.px = v.x; v.pz = v.z;
+      for (const gu of V.guts) gu.pivot.rotation.z = Math.sin(t * 2.2 + gu.seed + v.seed) * 0.22;
+
+      // ときどき映像が乱れたように姿がぶれる
+      if (Math.random() < dt * 0.5) v.glitch = 0.07 + Math.random() * 0.08;
+      v.glitch = (v.glitch || 0) - dt;
+      if (v.glitch > 0) {
+        V.root.position.x += (Math.random() - 0.5) * 0.35;
+        V.root.position.z += (Math.random() - 0.5) * 0.35;
+        V.root.scale.set(1 + Math.random() * 0.4, 1 - Math.random() * 0.15, 1);
+      } else V.root.scale.set(1, 1, 1);
+
+      // 滴り落ちる血（除霊役には何もない空間から血が落ちて見える）
+      v.dripT = (v.dripT ?? Math.random()) - dt;
+      if (v.dripT <= 0 && v.st !== 'dormant' && Math.hypot(v.x - this.me.x, v.z - this.me.z) < 12) {
+        v.dripT = 0.15 + Math.random() * 0.35;
+        const hx = (Math.random() - 0.5) * 0.5, hz = (Math.random() - 0.5) * 0.5;
+        this.fx.burst(v.x + hx, v.y + (crawl ? (v.ceil ? -0.1 : 0.35) : 1.1), v.z + hz, 0x5a0000, 2, 0.3, 0.9, 0.05, -9, null, false);
+      }
 
       let raise = 0.1 + Math.sin(t * 2 + v.seed) * 0.08;
       if (v.st === 'windup') raise = wp * 2.4;

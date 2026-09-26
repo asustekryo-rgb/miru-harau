@@ -1,53 +1,137 @@
-// 屋敷のマップ定義とグリッド計算（当たり判定・視線・経路探索）
+// ステージ（マップ）定義とグリッド計算（当たり判定・視線・経路探索）
 export const CELL = 2;
 export const WALL_H = 3;
 
 // # 壁  . 床  D 出入口  X 封印扉  f 家具  S 開始地点  E 出口
 // 1-3 御札  s 清め塩  B 主
-// w 彷徨い（近くの御札を守る）  c 這い女（同）  p q 巡回する霊（ROUTES の経路を回る）
-export const SRC = [
-  '#####################',
-  '#.....#.......#.....#',
-  '#..1..#...q...#.....#',
-  '#...w.#.....s.#..c..#',
-  '#.f...#.f...f.#.f.2.#',
-  '###D######D######D###',
-  '#p..................#',
-  '#...................#',
-  '###D######D####X#####',
-  '#.....#.......#.....#',
-  '#..s..#...S...#.....#',
-  '#..3w.#.......#..B..#',
-  '#.f...#.......#.....#',
-  '#.....#.fEEEf.#f...f#',
-  '#####################',
+// w 彷徨い（近くの御札を守る）  c 這い女（同）  p q 巡回する霊（routes の経路を回る）
+// theme: 壁・天井・家具の見た目   candles: [列, 行, 色] の明かり
+export const STAGES = [
+  {
+    name: '廃屋敷', night: '第一夜', theme: 'house',
+    src: [
+      '#####################',
+      '#.....#.......#.....#',
+      '#..1..#...q...#.....#',
+      '#...w.#.....s.#..c..#',
+      '#.f...#.f...f.#.f.2.#',
+      '###D######D######D###',
+      '#p..................#',
+      '#...................#',
+      '###D######D####X#####',
+      '#.....#.......#.....#',
+      '#..s..#.......#.....#',
+      '#..3w.#.......#..B..#',
+      '#.f...#...S...#.....#',
+      '#.....#.fEEEf.#f...f#',
+      '#####################',
+    ],
+    routes: {
+      p: [[1, 6], [19, 6], [19, 7], [1, 7]],
+      q: [[10, 2], [3, 3], [3, 6], [17, 6], [17, 2], [10, 3]],
+    },
+    rooms: [
+      { name: '客間', c0: 1, r0: 1, c1: 5, r1: 4, floor: 'tatami' },
+      { name: '広間', c0: 7, r0: 1, c1: 13, r1: 4, floor: 'tatami' },
+      { name: '台所', c0: 15, r0: 1, c1: 19, r1: 4, floor: 'wood' },
+      { name: '廊下', c0: 1, r0: 5, c1: 19, r1: 8, floor: 'wood' },
+      { name: '和室', c0: 1, r0: 9, c1: 5, r1: 13, floor: 'tatami' },
+      { name: '玄関', c0: 7, r0: 9, c1: 13, r1: 13, floor: 'stone' },
+      { name: '奥の間', c0: 15, r0: 9, c1: 19, r1: 13, floor: 'tatami', boss: true },
+    ],
+    candles: [[3, 1, 0xffa050], [8, 1, 0xffa050], [12, 9, 0xffa050], [19, 6, 0xffa050], [17, 13, 0xff3a2a]],
+  },
+  {
+    name: '廃校', night: '第二夜', theme: 'school',
+    src: [
+      '#########################',
+      '#.......#...s...#.......#',
+      '#.ff.ff.#.ff.ff.#.ff.ff.#',
+      '#...1...#...q...#.....2.#',
+      '#.ff.fw.#.ff.ff.#.ff.fc.#',
+      '####D#######D#######D####',
+      '#p......................#',
+      '#.......................#',
+      '####D#######D#####X######',
+      '#.......#.......#.......#',
+      '#.3.....#.......#.......#',
+      '#.....w.#.......#...B...#',
+      '#.f...s.#.S.....#.......#',
+      '#.......#..EEE..#.f...f.#',
+      '#########################',
+    ],
+    routes: {
+      p: [[1, 6], [23, 6], [23, 7], [1, 7]],
+      q: [[12, 3], [20, 3], [20, 7], [4, 7], [4, 3]],
+    },
+    rooms: [
+      { name: '一年A組', c0: 1, r0: 1, c1: 7, r1: 4, floor: 'wood' },
+      { name: '一年B組', c0: 9, r0: 1, c1: 15, r1: 4, floor: 'wood' },
+      { name: '一年C組', c0: 17, r0: 1, c1: 23, r1: 4, floor: 'wood' },
+      { name: '廊下', c0: 1, r0: 5, c1: 23, r1: 8, floor: 'lino' },
+      { name: '保健室', c0: 1, r0: 9, c1: 7, r1: 13, floor: 'tile' },
+      { name: '昇降口', c0: 9, r0: 9, c1: 15, r1: 13, floor: 'stone' },
+      { name: '音楽室', c0: 17, r0: 9, c1: 23, r1: 13, floor: 'wood', boss: true },
+    ],
+    candles: [[4, 1, 0xffa050], [12, 9, 0x8fffb0], [23, 6, 0x8fffb0], [1, 7, 0x8fffb0], [20, 13, 0xff3a2a]],
+  },
+  {
+    name: '廃病院', night: '第三夜', theme: 'hospital',
+    src: [
+      '#######################',
+      '#.....#.....#.........#',
+      '#.f.f.#.f1f.#..f...f..#',
+      '#..s..#..w..#.....3...#',
+      '#.f.f.#.f.f.#.f...c.f.#',
+      '###D#####D#####D#######',
+      '#p....................#',
+      '#.........q...........#',
+      '###D#####X#####D#######',
+      '#.....#.....#.........#',
+      '#..2..#.....#....S....#',
+      '#...w.#..B..#.........#',
+      '#.f.f.#.....#..f...f..#',
+      '#.s...#.f.f.#...EEE..s#',
+      '#######################',
+    ],
+    routes: {
+      p: [[1, 6], [21, 6], [21, 7], [1, 7]],
+      q: [[10, 7], [9, 3], [17, 2], [17, 11], [3, 11], [3, 6]],
+    },
+    rooms: [
+      { name: '病室101', c0: 1, r0: 1, c1: 5, r1: 4, floor: 'tile' },
+      { name: '病室102', c0: 7, r0: 1, c1: 11, r1: 4, floor: 'tile' },
+      { name: 'ナースステーション', c0: 13, r0: 1, c1: 21, r1: 4, floor: 'lino' },
+      { name: '廊下', c0: 1, r0: 5, c1: 21, r1: 8, floor: 'lino' },
+      { name: '霊安室', c0: 1, r0: 9, c1: 5, r1: 13, floor: 'stone' },
+      { name: '手術室', c0: 7, r0: 9, c1: 11, r1: 13, floor: 'tile', boss: true },
+      { name: '待合室', c0: 13, r0: 9, c1: 21, r1: 13, floor: 'lino' },
+    ],
+    candles: [[3, 9, 0x9fc8ff], [9, 1, 0x9fc8ff], [21, 6, 0x8fffb0], [9, 13, 0xff3a2a], [17, 9, 0x9fc8ff]],
+  },
 ];
 
-// 巡回経路（セル座標の輪）。隣り合う点の間はBFSで歩く
-export const ROUTES = {
-  p: [[1, 6], [19, 6], [19, 7], [1, 7]],
-  q: [[10, 2], [3, 3], [3, 6], [17, 6], [17, 2], [10, 3]],
-};
-export const H = SRC.length;
-export const W = SRC[0].length;
-const grid = SRC.map((row) => row.split(''));
-
-export const ROOMS = [
-  { name: '客間', c0: 1, r0: 1, c1: 5, r1: 4, floor: 'tatami' },
-  { name: '広間', c0: 7, r0: 1, c1: 13, r1: 4, floor: 'tatami' },
-  { name: '台所', c0: 15, r0: 1, c1: 19, r1: 4, floor: 'wood' },
-  { name: '廊下', c0: 1, r0: 5, c1: 19, r1: 8, floor: 'wood' },
-  { name: '和室', c0: 1, r0: 9, c1: 5, r1: 13, floor: 'tatami' },
-  { name: '玄関', c0: 7, r0: 9, c1: 13, r1: 13, floor: 'stone' },
-  { name: '奥の間', c0: 15, r0: 9, c1: 19, r1: 13, floor: 'tatami' },
-];
-export const BOSS_ROOM = ROOMS[6];
+// 現在のステージ。setStage() で切り替える（ES Modules のライブバインディング）
+export let STAGE, SRC, H, W, ROOMS, BOSS_ROOM, ROUTES;
+let grid;
+export function setStage(i) {
+  STAGE = STAGES[i] || STAGES[0];
+  SRC = STAGE.src;
+  H = SRC.length;
+  W = SRC[0].length;
+  grid = SRC.map((row) => row.split(''));
+  ROOMS = STAGE.rooms;
+  BOSS_ROOM = ROOMS.find((R) => R.boss);
+  ROUTES = STAGE.routes;
+}
+setStage(0);
 
 export const ch = (c, r) => (r < 0 || r >= H || c < 0 || c >= W ? '#' : grid[r][c]);
 export const cellOf = (v) => Math.floor(v / CELL);
 export const center = (c) => c * CELL + CELL / 2;
 export const inRect = (R, c, r) => c >= R.c0 && c <= R.c1 && r >= R.r0 && r <= R.r1;
 export const roomAtCell = (c, r) => ROOMS.find((R) => inRect(R, c, r)) || null;
+
 
 export function parseEntities() {
   const out = { spawn: null, exits: [], talismans: [], salts: [], ghosts: [] };

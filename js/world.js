@@ -21,18 +21,26 @@ function hasOpenNeighbor(c, r) {
   return false;
 }
 
-const CANDLES = [
-  [3, 1, 0xffa050], [8, 1, 0xffa050], [12, 9, 0xffa050], [19, 6, 0xffa050], [17, 13, 0xff3a2a],
-];
+// 家具の形（テーマごと）: [幅, 高さ, 奥行, 色]
+const FURNITURE = {
+  house: [[1.3, 1.8, 0.7, 0x8a6a50], [1.4, 0.8, 1.0, 0x8a6a50], [1.5, 0.35, 1.0, 0x8a6a50]],
+  school: [[1.0, 0.72, 0.65, 0xb08a60], [1.0, 0.72, 0.65, 0xa07a50], [0.9, 0.45, 0.9, 0x707070]],
+  hospital: [[1.0, 0.6, 1.95, 0xd8d4c8], [0.6, 1.6, 0.5, 0x8a9290], [1.0, 0.6, 1.95, 0xc8b8a8]],
+};
 
 export function buildWorld(scene, role) {
   const root = new THREE.Group();
   scene.add(root);
   const raycast = [];
-  const T = { wood: TX.woodFloor(), tatami: TX.tatami(), stone: TX.stone(), wall: TX.plaster(), ceil: TX.ceiling() };
+  const theme = M.STAGE.theme;
+  const T = {
+    wood: TX.woodFloor(), tatami: TX.tatami(), stone: TX.stone(), tile: TX.tile(), lino: TX.lino(),
+    wall: theme === 'school' ? TX.schoolWall() : theme === 'hospital' ? TX.hospitalWall() : TX.plaster(),
+    ceil: theme === 'house' ? TX.ceiling() : TX.ceilingPanel(),
+  };
   const lam = (map, extra = {}) => new THREE.MeshLambertMaterial({ map, ...extra });
 
-  const floors = { wood: [], tatami: [], stone: [] };
+  const floors = { wood: [], tatami: [], stone: [], tile: [], lino: [] };
   const ceils = [], walls = [], lintels = [], furniture = [];
   for (let r = 0; r < M.H; r++) {
     for (let c = 0; c < M.W; c++) {
@@ -62,11 +70,19 @@ export function buildWorld(scene, role) {
   root.add(inst(new THREE.BoxGeometry(M.CELL, 0.7, M.CELL), lam(T.ceil), lintels));
 
   // 家具
-  const furnMat = lam(T.wood, { color: 0x8a6a50 });
+  const kinds = FURNITURE[theme];
+  const furnMats = kinds.map((k) => lam(theme === 'hospital' ? null : T.wood, { color: k[3] }));
   for (const [c, r] of furniture) {
     const v = (c * 7 + r * 13) % 3;
-    const size = v === 0 ? [1.3, 1.8, 0.7] : v === 1 ? [1.4, 0.8, 1.0] : [1.5, 0.35, 1.0];
-    const m = new THREE.Mesh(new THREE.BoxGeometry(...size), furnMat);
+    const size = kinds[v].slice(0, 3);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(...size), furnMats[v]);
+    if (theme === 'hospital' && v !== 1) m.rotation.y = ((c + r) % 2) * 0.25 - 0.12;
+    // 病院のベッドには血の染みたシーツ
+    if (theme === 'hospital' && v !== 1) {
+      const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.8).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: TX.bloodTex(), color: 0xffffff, transparent: true }));
+      sheet.position.y = size[1] / 2 + 0.01;
+      m.add(sheet);
+    }
     m.position.set(M.center(c), size[1] / 2, M.center(r));
     root.add(m);
     raycast.push(m);
@@ -132,7 +148,7 @@ export function buildWorld(scene, role) {
   // 蝋燭
   const flameTex = TX.flame();
   const candles = [];
-  for (const [c, r, color] of CANDLES) {
+  for (const [c, r, color] of M.STAGE.candles) {
     const x = M.center(c), z = M.center(r) - 0.6;
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.08, 1.0, 8), new THREE.MeshLambertMaterial({ color: 0x1a1410 }));
     stand.position.set(x, 0.5, z);

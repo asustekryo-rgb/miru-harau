@@ -175,6 +175,13 @@ export class Sfx {
         this.burst('bandpass', 700, 400, 6, 2.0, 0.15, d);
         break;
       case 'dodge': this.burst('bandpass', 1800, 400, 1.5, 0.18, 0.25, d); break;
+      case 'scream':
+        this.tone('sawtooth', 780, 330, 0.7, 0.45, d);
+        this.tone('sawtooth', 830, 350, 0.7, 0.3, d);
+        this.tone('square', 1560, 900, 0.5, 0.12, d);
+        this.burst('bandpass', 2600, 1200, 2, 0.7, 0.55, d);
+        this.tone('sine', 70, 30, 0.6, 0.9, d);
+        break;
       case 'win': [523, 659, 784, 1046].forEach((f, i) => this.tone('triangle', f, f, 1.2, 0.2, d, i * 0.15)); break;
       case 'lose':
         this.tone('sawtooth', 110, 40, 2.5, 0.3, d);

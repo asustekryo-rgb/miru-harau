@@ -18,7 +18,7 @@ const TYPES = {
 // 姿勢ごとの見つかりやすさ
 const SIGHT_MUL = { idle: 0.7, walk: 1, run: 1.25, crouch: 0.4 };
 const NOISE = { idle: 0, walk: 4, run: 11, crouch: 0 };
-const RESPAWN = { guard: 30, patrol: 40 };
+const RESPAWN = { guard: 75, patrol: 90 };
 
 const TAU = Math.PI * 2;
 export const wrap = (a) => ((((a + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
