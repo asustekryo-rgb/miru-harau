@@ -290,7 +290,11 @@ async function startGame() {
   $('hud').hidden = false;
   document.body.classList.add('playing');
   input.reset();
+  // 屋敷の生成に数秒かかるので、先に「読み込み中」を描かせてから作る
+  $('loading').hidden = false;
+  await new Promise((r) => { requestAnimationFrame(() => setTimeout(r, 0)); setTimeout(r, 100); });
   game = new Game({ renderer, role: myRole, isHost, solo, sfx, input, send, onOver, stage, quality, onQuality: setQuality });
+  $('loading').hidden = true;
   window.__game = game;
   try {
     navigator.wakeLock?.request('screen').then((l) => { wakeLock = l; }).catch(() => {});

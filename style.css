@@ -197,3 +197,7 @@ body[data-role="exo"] .act.seer, body[data-role="seer"] .act.exo { display: none
 .credits a { color: #9fc4ff; }
 .dim { color: var(--dim); font-size: 12px; }
 .credit-mini { color: #5f5a52; font-size: 11px; margin-top: 6px; }
+
+#loading { position: fixed; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; z-index: 9; color: var(--dim); letter-spacing: 0.4em; font-size: 18px; }
+#loading p { animation: loadingPulse 1.6s ease-in-out infinite; }
+@keyframes loadingPulse { 50% { opacity: 0.3; } }

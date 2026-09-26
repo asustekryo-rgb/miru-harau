@@ -1,5 +1,5 @@
 // 一度開けばオフライン（ローカル通信のみ）でも起動できるようにキャッシュする
-const CACHE = 'miruharau-v5';
+const CACHE = 'miruharau-v6';
 const CORE = [
   './', './index.html', './style.css',
   './js/main.js', './js/game.js', './js/sim.js', './js/map.js', './js/world.js',

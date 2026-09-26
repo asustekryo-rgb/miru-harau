@@ -16,6 +16,58 @@ function cv(w, h) {
   c.height = h;
   return [c, c.getContext('2d', { willReadFrequently: true })];
 }
+// 壁・床用：2倍解像度のキャンバス（描画は論理サイズの座標で行う）
+const RES = 2;
+function cvHi(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w * RES;
+  c.height = h * RES;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.scale(RES, RES);
+  return [c, g];
+}
+
+// 同じ模様が並んで見えないよう、1枚ごとに汚れ・ひび・色むらを変える
+function finish(g, r, w, h, amt, seed) {
+  // 全体の色むら
+  const hue = [[40, 25, 10], [20, 25, 30], [30, 30, 10], [45, 10, 10]][seed % 4];
+  g.fillStyle = `rgba(${hue[0]},${hue[1]},${hue[2]},${0.04 + r() * 0.08})`;
+  g.fillRect(0, 0, w, h);
+  // 大きな水染み・煤
+  for (let i = 0; i < 2 + (seed % 3); i++) {
+    const x = r() * w, y = r() * h, rad = 30 + r() * 70;
+    const gr = g.createRadialGradient(x, y, rad * 0.2, x, y, rad);
+    gr.addColorStop(0, `rgba(15,10,5,${0.12 + r() * 0.2})`);
+    gr.addColorStop(0.8, `rgba(40,30,15,${0.05 + r() * 0.08})`);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // ひび割れ
+  if (r() < 0.7) {
+    g.strokeStyle = `rgba(10,6,4,${0.4 + r() * 0.3})`;
+    g.lineWidth = 0.8;
+    for (let k = 0; k < 1 + Math.floor(r() * 3); k++) {
+      let x = r() * w, y = r() * h, a = r() * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let s = 0; s < 10; s++) {
+        a += (r() - 0.5) * 1.1;
+        x += Math.cos(a) * 7;
+        y += Math.sin(a) * 7;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+  }
+  // 細かな埃・点々
+  for (let i = 0; i < 60; i++) {
+    g.fillStyle = `rgba(${r() < 0.5 ? 0 : 200},${r() < 0.5 ? 0 : 190},${r() < 0.5 ? 0 : 170},${0.05 + r() * 0.1})`;
+    g.fillRect(r() * w, r() * h, 0.6 + r() * 1.4, 0.6 + r() * 1.4);
+  }
+  grain(g, w, h, r, amt);
+}
+
 function toTex(c) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -23,6 +75,9 @@ function toTex(c) {
   return t;
 }
 function grain(g, w, h, r, amt) {
+  // 高解像度キャンバスでも全体に掛かるよう、実際の画素数で処理する
+  w = g.canvas.width;
+  h = g.canvas.height;
   const im = g.getImageData(0, 0, w, h);
   const d = im.data;
   for (let i = 0; i < d.length; i += 4) {
@@ -42,9 +97,9 @@ function stains(g, w, h, r, n, color, maxR) {
   }
 }
 
-export function woodFloor() {
-  const [c, g] = cv(256, 256);
-  const r = rng(11);
+export function woodFloor(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(11 + seed * 97);
   const n = 5, ph = 256 / n;
   for (let i = 0; i < n; i++) {
     const v = 0.8 + r() * 0.35;
@@ -64,13 +119,13 @@ export function woodFloor() {
     g.fillRect(r() * 256, i * ph, 2, ph);
   }
   stains(g, 256, 256, r, 5, 'rgba(10,5,0,0.35)', 40);
-  grain(g, 256, 256, r, 18);
+  finish(g, r, 256, 256, 18, seed);
   return toTex(c);
 }
 
-export function tatami() {
-  const [c, g] = cv(256, 256);
-  const r = rng(21);
+export function tatami(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(21 + seed * 97);
   g.fillStyle = '#8d8a58';
   g.fillRect(0, 0, 256, 256);
   for (let x = 0; x < 256; x += 3) {
@@ -81,13 +136,13 @@ export function tatami() {
   g.fillRect(0, 0, 256, 14);
   g.fillRect(0, 242, 256, 14);
   stains(g, 256, 256, r, 5, 'rgba(40,25,0,0.4)', 55);
-  grain(g, 256, 256, r, 20);
+  finish(g, r, 256, 256, 20, seed);
   return toTex(c);
 }
 
-export function stone() {
-  const [c, g] = cv(256, 256);
-  const r = rng(41);
+export function stone(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(41 + seed * 97);
   g.fillStyle = '#1c1b1a';
   g.fillRect(0, 0, 256, 256);
   for (let y = 0; y < 4; y++) {
@@ -98,13 +153,13 @@ export function stone() {
     }
   }
   stains(g, 256, 256, r, 6, 'rgba(0,0,0,0.35)', 50);
-  grain(g, 256, 256, r, 26);
+  finish(g, r, 256, 256, 26, seed);
   return toTex(c);
 }
 
-export function plaster() {
-  const [c, g] = cv(256, 384);
-  const r = rng(31);
+export function plaster(seed = 0) {
+  const [c, g] = cvHi(256, 384);
+  const r = rng(31 + seed * 97);
   g.fillStyle = '#a0937a';
   g.fillRect(0, 0, 256, 384);
   stains(g, 256, 384, r, 18, 'rgba(60,50,35,0.25)', 70);
@@ -121,13 +176,13 @@ export function plaster() {
   g.fillRect(242, 0, 14, 384);
   g.fillRect(0, 96, 256, 12);
   g.fillRect(0, 364, 256, 20);
-  grain(g, 256, 384, r, 22);
+  finish(g, r, 256, 384, 22, seed);
   return toTex(c);
 }
 
-export function ceiling() {
-  const [c, g] = cv(256, 256);
-  const r = rng(51);
+export function ceiling(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(51 + seed * 97);
   for (let i = 0; i < 6; i++) {
     const v = 0.8 + r() * 0.3;
     g.fillStyle = `rgb(${(48 * v) | 0},${(36 * v) | 0},${(28 * v) | 0})`;
@@ -136,7 +191,7 @@ export function ceiling() {
     g.fillRect(i * 43, 0, 2, 256);
   }
   stains(g, 256, 256, r, 4, 'rgba(0,0,0,0.5)', 60);
-  grain(g, 256, 256, r, 16);
+  finish(g, r, 256, 256, 16, seed);
   return toTex(c);
 }
 
@@ -577,9 +632,9 @@ function handprint(g, r, x, y, s, rot) {
   }
 }
 
-export function schoolWall() {
-  const [c, g] = cv(256, 384);
-  const r = rng(131);
+export function schoolWall(seed = 0) {
+  const [c, g] = cvHi(256, 384);
+  const r = rng(131 + seed * 97);
   g.fillStyle = '#9fae9a';
   g.fillRect(0, 0, 256, 384);
   stains(g, 256, 384, r, 16, 'rgba(60,70,50,0.3)', 60);
@@ -593,24 +648,13 @@ export function schoolWall() {
   }
   g.fillStyle = '#3a2818';
   g.fillRect(0, 244, 256, 8);
-  // 血の手形と引っかき傷
-  for (let i = 0; i < 3; i++) handprint(g, r, 30 + r() * 190, 110 + r() * 90, 0.9 + r() * 0.3, (r() - 0.5) * 0.6);
-  g.strokeStyle = 'rgba(30,20,15,0.6)';
-  g.lineWidth = 2;
-  for (let i = 0; i < 4; i++) {
-    const x = r() * 220;
-    g.beginPath();
-    g.moveTo(x, 120); g.lineTo(x + 20, 230);
-    g.moveTo(x + 8, 118); g.lineTo(x + 28, 228);
-    g.stroke();
-  }
-  grain(g, 256, 384, r, 22);
+  finish(g, r, 256, 384, 22, seed);
   return toTex(c);
 }
 
-export function hospitalWall() {
-  const [c, g] = cv(256, 384);
-  const r = rng(137);
+export function hospitalWall(seed = 0) {
+  const [c, g] = cvHi(256, 384);
+  const r = rng(137 + seed * 97);
   g.fillStyle = '#c9cfc9';
   g.fillRect(0, 0, 256, 384);
   // 下半分のタイル
@@ -627,14 +671,13 @@ export function hospitalWall() {
   stains(g, 256, 384, r, 4, 'rgba(110,0,0,0.6)', 30);
   for (let i = 0; i < 8; i++) drip(g, r, r() * 256, 120 + r() * 160, 40 + r() * 120, 3, 'rgba(100,0,0,0.65)');
   peel(g, r, 256, 190, 6, 'rgba(120,120,100,0.6)');
-  for (let i = 0; i < 2; i++) handprint(g, r, 40 + r() * 170, 150 + r() * 120, 1, (r() - 0.5) * 0.8);
-  grain(g, 256, 384, r, 20);
+  finish(g, r, 256, 384, 20, seed);
   return toTex(c);
 }
 
-export function tile() {
-  const [c, g] = cv(256, 256);
-  const r = rng(139);
+export function tile(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(139 + seed * 97);
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const v = (x + y) % 2 ? 150 + r() * 20 : 70 + r() * 15;
@@ -644,13 +687,13 @@ export function tile() {
   }
   stains(g, 256, 256, r, 6, 'rgba(80,0,0,0.6)', 40);
   stains(g, 256, 256, r, 8, 'rgba(30,25,10,0.4)', 50);
-  grain(g, 256, 256, r, 20);
+  finish(g, r, 256, 256, 20, seed);
   return toTex(c);
 }
 
-export function lino() {
-  const [c, g] = cv(256, 256);
-  const r = rng(149);
+export function lino(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(149 + seed * 97);
   g.fillStyle = '#6f7a6a';
   g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 400; i++) {
@@ -661,16 +704,13 @@ export function lino() {
   g.fillRect(0, 0, 256, 2);
   g.fillRect(0, 0, 2, 256);
   stains(g, 256, 256, r, 8, 'rgba(20,20,10,0.4)', 50);
-  // 引きずった血の跡
-  g.fillStyle = 'rgba(90,0,0,0.5)';
-  for (let x = 0; x < 256; x += 3) g.fillRect(x, 120 + Math.sin(x * 0.05) * 20 + r() * 4, 3, 10 + r() * 6);
-  grain(g, 256, 256, r, 18);
+  finish(g, r, 256, 256, 18, seed);
   return toTex(c);
 }
 
-export function ceilingPanel() {
-  const [c, g] = cv(256, 256);
-  const r = rng(151);
+export function ceilingPanel(seed = 0) {
+  const [c, g] = cvHi(256, 256);
+  const r = rng(151 + seed * 97);
   g.fillStyle = '#6e6c66';
   g.fillRect(0, 0, 256, 256);
   g.fillStyle = 'rgba(0,0,0,0.5)';
@@ -679,6 +719,243 @@ export function ceilingPanel() {
   // 抜け落ちたパネル
   g.fillStyle = '#050505';
   g.fillRect(67, 131, 61, 61);
-  grain(g, 256, 256, r, 18);
+  finish(g, r, 256, 256, 18, seed);
   return toTex(c);
 }
+
+// ---------- 床・壁に散らす汚れや小物（透過テクスチャ） ----------
+const JP = '"Yu Mincho","Hiragino Mincho ProN",serif';
+function blob(g, r, x, y, rad, color, pts = 18) {
+  g.fillStyle = color;
+  g.beginPath();
+  for (let i = 0; i <= pts; i++) {
+    const a = (i / pts) * Math.PI * 2, d = rad * (0.65 + r() * 0.5);
+    g.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  }
+  g.fill();
+}
+// 手書き風の文字（1文字ずつ揺らす）
+function scrawl(g, r, text, x, y, size, color, rotJitter = 0.25) {
+  g.fillStyle = color;
+  g.font = `bold ${size}px ${JP}`;
+  g.textBaseline = 'middle';
+  let cx = x;
+  for (const ch of text) {
+    g.save();
+    g.translate(cx, y + (r() - 0.5) * size * 0.3);
+    g.rotate((r() - 0.5) * rotJitter);
+    g.fillText(ch, 0, 0);
+    g.restore();
+    cx += size * (0.85 + r() * 0.3);
+  }
+}
+
+export const DECALS = {
+  dirt(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(201 + seed * 31);
+    for (let i = 0; i < 5; i++) blob(g, r, 40 + r() * 48, 40 + r() * 48, 18 + r() * 22, `rgba(${20 + r() * 20},${15 + r() * 10},5,${0.25 + r() * 0.3})`);
+    for (let i = 0; i < 80; i++) {
+      g.fillStyle = `rgba(30,20,10,${r() * 0.5})`;
+      g.fillRect(10 + r() * 108, 10 + r() * 108, 1 + r() * 2, 1 + r() * 2);
+    }
+    return toTex(c);
+  },
+  debris(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(211 + seed * 31);
+    blob(g, r, 64, 64, 40, 'rgba(25,18,10,0.35)');
+    for (let i = 0; i < 26; i++) {
+      g.save();
+      g.translate(20 + r() * 88, 20 + r() * 88);
+      g.rotate(r() * Math.PI);
+      const v = 60 + r() * 90;
+      g.fillStyle = r() < 0.5 ? `rgb(${v},${v * 0.8},${v * 0.6})` : `rgb(${v},${v},${v * 0.95})`;
+      g.fillRect(-1 - r() * 5, -1 - r() * 2, 2 + r() * 10, 2 + r() * 4);
+      g.restore();
+    }
+    return toTex(c);
+  },
+  papers(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(221 + seed * 31);
+    for (let i = 0; i < 3; i++) {
+      g.save();
+      g.translate(30 + r() * 68, 30 + r() * 68);
+      g.rotate(r() * Math.PI);
+      g.fillStyle = `rgba(${200 + r() * 30},${190 + r() * 25},${160 + r() * 20},0.92)`;
+      g.fillRect(-20, -27, 40, 54);
+      g.fillStyle = 'rgba(40,40,40,0.5)';
+      for (let l = 0; l < 7; l++) g.fillRect(-15, -20 + l * 6, 22 + r() * 8, 1.2);
+      if (r() < 0.5) blob(g, r, (r() - 0.5) * 20, (r() - 0.5) * 30, 7 + r() * 8, 'rgba(90,0,0,0.75)');
+      g.restore();
+    }
+    return toTex(c);
+  },
+  puddle(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(231 + seed * 31);
+    blob(g, r, 64, 64, 48, 'rgba(8,10,12,0.75)', 26);
+    const gr = g.createLinearGradient(30, 30, 100, 100);
+    gr.addColorStop(0, 'rgba(160,180,200,0.25)');
+    gr.addColorStop(0.5, 'rgba(0,0,0,0)');
+    blob(g, r, 60, 58, 38, gr, 22);
+    return toTex(c);
+  },
+  bloodPool(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(241 + seed * 31);
+    blob(g, r, 64, 64, 42, 'rgba(60,0,0,0.9)', 24);
+    blob(g, r, 60, 60, 26, 'rgba(35,0,0,0.9)');
+    for (let i = 0; i < 16; i++) {
+      const a = r() * Math.PI * 2, d = 44 + r() * 16;
+      blob(g, r, 64 + Math.cos(a) * d, 64 + Math.sin(a) * d, 2 + r() * 5, 'rgba(70,0,0,0.85)', 8);
+    }
+    return toTex(c);
+  },
+  footprints(seed) {
+    const [c, g] = cvHi(128, 256);
+    const r = rng(251 + seed * 31);
+    for (let i = 0; i < 6; i++) {
+      const x = 64 + (i % 2 ? 14 : -14) + (r() - 0.5) * 6, y = 230 - i * 38;
+      const a = 0.15 * (i % 2 ? 1 : -1) + (r() - 0.5) * 0.2, al = 0.85 - i * 0.12;
+      g.save();
+      g.translate(x, y);
+      g.rotate(a);
+      g.fillStyle = `rgba(80,0,0,${al})`;
+      g.beginPath(); g.ellipse(0, 0, 6, 11, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(0, 12, 5, 5, 0, 0, Math.PI * 2); g.fill();
+      for (let t = 0; t < 5; t++) {
+        g.beginPath(); g.arc(-5 + t * 2.6, -13 - (t === 0 ? 1 : 0), 1.6, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+    return toTex(c);
+  },
+  drag(seed) {
+    const [c, g] = cvHi(128, 256);
+    const r = rng(261 + seed * 31);
+    for (let k = 0; k < 5; k++) {
+      const x = 44 + k * 9 + (r() - 0.5) * 4;
+      const gr = g.createLinearGradient(0, 250, 0, 10);
+      gr.addColorStop(0, 'rgba(80,0,0,0.85)');
+      gr.addColorStop(1, 'rgba(80,0,0,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(x, 250);
+      for (let y = 250; y > 10; y -= 20) g.lineTo(x + Math.sin(y * 0.03 + k) * 4, y);
+      g.lineTo(x + 4 + r() * 3, 10);
+      g.lineTo(x + 5, 250);
+      g.fill();
+    }
+    blob(g, r, 64, 236, 22, 'rgba(60,0,0,0.9)');
+    return toTex(c);
+  },
+  // --- 壁用 ---
+  mold(seed) {
+    const [c, g] = cvHi(128, 192);
+    const r = rng(271 + seed * 31);
+    for (let i = 0; i < 40; i++) blob(g, r, 20 + r() * 88, 110 + r() * 80 - i * 0.8, 4 + r() * 14, `rgba(${15 + r() * 20},${25 + r() * 20},${10 + r() * 10},${0.25 + r() * 0.35})`, 10);
+    return toTex(c);
+  },
+  streak(seed) {
+    const [c, g] = cvHi(128, 192);
+    const r = rng(281 + seed * 31);
+    for (let i = 0; i < 7; i++) drip(g, r, 20 + r() * 88, 0, 60 + r() * 130, 3 + r() * 6, `rgba(${30 + r() * 30},${20 + r() * 15},10,${0.35 + r() * 0.3})`);
+    return toTex(c);
+  },
+  scratches(seed) {
+    const [c, g] = cvHi(128, 128);
+    const r = rng(291 + seed * 31);
+    for (let s = 0; s < 2; s++) {
+      const x0 = 20 + r() * 60, y0 = 15 + r() * 20;
+      for (let k = 0; k < 4; k++) {
+        g.strokeStyle = `rgba(20,10,8,${0.7 + r() * 0.3})`;
+        g.lineWidth = 1.8;
+        g.beginPath();
+        g.moveTo(x0 + k * 7, y0 + k * 2);
+        g.quadraticCurveTo(x0 + k * 7 + 14, y0 + 50, x0 + k * 7 + 6 + r() * 6, y0 + 90 + r() * 15);
+        g.stroke();
+        g.strokeStyle = 'rgba(200,190,170,0.25)';
+        g.lineWidth = 0.7;
+        g.stroke();
+      }
+    }
+    return toTex(c);
+  },
+  hands(seed) {
+    const [c, g] = cvHi(128, 160);
+    const r = rng(341 + seed * 31);
+    for (let i = 0; i < 1 + (seed % 3); i++) handprint(g, r, 30 + r() * 70, 40 + r() * 50, 0.8 + r() * 0.3, (r() - 0.5) * 0.7);
+    return toTex(c);
+  },
+  writing(seed) {
+    const [c, g] = cvHi(256, 128);
+    const r = rng(301 + seed * 31);
+    const words = ['たすけて', 'ここにいる', 'みている', 'かえして', 'ゆるさない', 'でられない'];
+    const w = words[seed % words.length];
+    for (let i = 0; i < 3; i++) scrawl(g, r, w, 8 + r() * 20, 22 + i * 38, 26 - i * 3, `rgba(${90 + r() * 30},0,0,${0.85 - i * 0.2})`);
+    for (let i = 0; i < 5; i++) drip(g, r, 20 + r() * 220, 30 + r() * 60, 20 + r() * 40, 2, 'rgba(90,0,0,0.7)');
+    return toTex(c);
+  },
+  scroll(seed) {
+    const [c, g] = cvHi(96, 256);
+    const r = rng(311 + seed * 31);
+    g.fillStyle = '#3b2a1a'; g.fillRect(0, 0, 96, 256);
+    g.fillStyle = '#d8ccae'; g.fillRect(10, 18, 76, 222);
+    g.fillStyle = '#2a1a10'; g.fillRect(0, 0, 96, 8); g.fillRect(0, 246, 96, 10);
+    // 墨で描かれた幽霊画
+    g.strokeStyle = 'rgba(20,15,10,0.8)';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(48, 70); g.quadraticCurveTo(30, 140, 40, 220);
+    g.moveTo(52, 70); g.quadraticCurveTo(70, 150, 58, 222);
+    g.stroke();
+    g.fillStyle = 'rgba(15,10,8,0.85)';
+    g.beginPath(); g.ellipse(50, 60, 9, 12, 0, 0, Math.PI * 2); g.fill();
+    for (let i = 0; i < 30; i++) g.fillRect(40 + r() * 20, 58 + r() * 4, 0.8, 30 + r() * 60);
+    g.fillStyle = 'rgba(200,190,170,1)';
+    g.beginPath(); g.ellipse(52, 64, 4, 6, 0, 0, Math.PI * 2); g.fill();
+    stains(g, 96, 256, r, 5, 'rgba(80,50,20,0.35)', 30);
+    if (seed % 2) blob(g, r, 50, 150, 14, 'rgba(90,0,0,0.6)');
+    return toTex(c);
+  },
+  chalkboard(seed) {
+    const [c, g] = cvHi(512, 170);
+    const r = rng(321 + seed * 31);
+    g.fillStyle = '#4a3522'; g.fillRect(0, 0, 512, 170);
+    g.fillStyle = '#1f3326'; g.fillRect(8, 8, 496, 146);
+    stains(g, 512, 170, r, 12, 'rgba(160,170,160,0.12)', 60);
+    g.fillStyle = '#6a5038'; g.fillRect(0, 154, 512, 16);
+    const lines = [['たすけて たすけて たすけて', 22], ['みんなどこ？', 18], ['せんせいが みてる', 20], ['ここからでられない', 18]];
+    let y = 34;
+    for (const [t, s] of lines) {
+      if (r() < 0.85) scrawl(g, r, t, 30 + r() * 150, y, s, `rgba(230,230,220,${0.55 + r() * 0.3})`, 0.3);
+      y += 32;
+    }
+    g.strokeStyle = 'rgba(220,220,210,0.5)';
+    g.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      g.beginPath(); g.moveTo(r() * 500, r() * 150); g.lineTo(r() * 500, r() * 150); g.stroke();
+    }
+    return toTex(c);
+  },
+  notice(seed) {
+    const [c, g] = cvHi(96, 128);
+    const r = rng(331 + seed * 31);
+    g.fillStyle = `rgba(${210 + r() * 20},${205 + r() * 20},${180 + r() * 20},0.95)`;
+    g.fillRect(4, 4, 88, 120);
+    const titles = ['お知らせ', '面会謝絶', '立入禁止', '安静に', '点呼'];
+    g.fillStyle = 'rgba(30,30,30,0.85)';
+    g.font = `bold 15px ${JP}`;
+    g.textAlign = 'center';
+    g.fillText(titles[seed % titles.length], 48, 24);
+    g.fillStyle = 'rgba(40,40,40,0.5)';
+    for (let l = 0; l < 9; l++) g.fillRect(14, 38 + l * 9, 55 + r() * 15, 1.3);
+    stains(g, 96, 128, r, 4, 'rgba(90,70,30,0.4)', 25);
+    if (r() < 0.6) drip(g, r, 20 + r() * 50, 30, 40 + r() * 50, 3, 'rgba(90,0,0,0.75)');
+    g.fillStyle = '#888';
+    g.beginPath(); g.arc(48, 8, 3, 0, Math.PI * 2); g.fill();
+    return toTex(c);
+  },
+};

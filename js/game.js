@@ -39,6 +39,12 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
     this.world = buildWorld(this.scene, this.role);
+    // ステージの響きと環境音（音楽室のピアノ、ナースステーションの心電図）
+    const roomCenter = (R) => R && { x: (M.center(R.c0) + M.center(R.c1)) / 2, y: 1, z: (M.center(R.r0) + M.center(R.r1)) / 2 };
+    this.sfx.setEnvironment(M.STAGE.theme, {
+      piano: roomCenter(M.BOSS_ROOM),
+      monitor: roomCenter(M.ROOMS.find((R) => R.name === 'ナースステーション')),
+    });
 
     const E = M.parseEntities();
     const sx = M.center(E.spawn.c), sz = M.center(E.spawn.r);
@@ -110,6 +116,12 @@ export class Game {
     $('ping').className = '';
     $('hurt').style.opacity = 0;
     $('noise').style.opacity = 0;
+    // 前のプレイ（別の役割）の画面効果が残らないように戻す
+    $('breath').classList.remove('on');
+    $('threat').style.opacity = 0;
+    $('bloodscreen').style.opacity = 0;
+    $('scare').className = '';
+    $('arrow').hidden = true;
     const title = $('stage-title');
     title.innerHTML = `<small>${M.STAGE.night}</small>${M.STAGE.name}`;
     title.className = '';
@@ -177,7 +189,7 @@ export class Game {
         const type = TYPE_IDX[ti];
         v = {
           id, type, x, y, z, yaw, st: null, seed: Math.random() * 10, dying: 0, flashT: 0, twitch: 0,
-          dx: x, dz: z, view: makeGhost(type), voice: this.sfx.voice(),
+          dx: x, dz: z, view: makeGhost(type), voice: this.sfx.voice(type),
         };
         this.scene.add(v.view.root);
         this.ghosts.set(id, v);
@@ -341,6 +353,7 @@ export class Game {
       case 'over':
         if (this.over) break;
         this.over = true;
+        this.sfx.calm();
         this.sfx.play(ev.win ? 'win' : 'lose');
         this.toast(ev.win ? '脱出成功' : '失敗…', 2);
         setTimeout(() => this.onOver(ev), 1800);
@@ -444,7 +457,7 @@ export class Game {
       this.bob += moved * (me.crouch ? 3 : 4.5);
       if (this.stepAcc > (dash ? 0.95 : 0.75)) {
         this.stepAcc = 0;
-        if (!me.crouch) this.sfx.play('step');
+        if (!me.crouch) this.sfx.step(M.roomAtCell(M.cellOf(me.x), M.cellOf(me.z))?.floor || 'wood');
       }
       this.actions(dt);
     } else {
@@ -627,6 +640,9 @@ export class Game {
     if (this.sfx.ok) {
       const f = this.tmpV.set(0, 0, -1).applyQuaternion(cam.quaternion);
       this.sfx.setListener(cam.position.x, cam.position.y, cam.position.z, f.x, f.y, f.z);
+      const hunted = [...this.ghosts.values()].some((v) => !(v.dying > 0) && v.target === this.role && HUNTING.has(v.st));
+      const weak = this.role === 'exo' ? this.me.hp < 35 : this.me.gauge > 65;
+      if (!this.over) this.sfx.tick(dt, { listener: this.me, presence: this.presence, hunted, weak });
     }
     this.updatePresence(dt);
     this.updateThreat();
@@ -860,7 +876,13 @@ export class Game {
       }
       if (v.voice) {
         const lvl = v.st === 'dormant' ? 0.06 : (v.st === 'windup' ? 0.7 : 0.35) * (seer ? 0.6 : 1);
-        v.voice.set(v.x, v.y + 1.3, v.z, lvl);
+        // 壁越しの霊の声はこもって聞こえる（判定は0.25秒ごと）
+        v.occT = (v.occT || 0) - dt;
+        if (v.occT <= 0) {
+          v.occT = 0.25;
+          v.occluded = !M.los(this.me.x, this.me.z, v.x, v.z, M.blocksSightFn(this.sealOpen));
+        }
+        v.voice.set(v.x, v.y + 1.3, v.z, lvl, v.occluded);
       }
     }
   }
@@ -931,7 +953,8 @@ export class Game {
     }
     this.presence += (p - this.presence) * Math.min(1, dt * 4);
     const pr = this.presence;
-    this.updateFlashlight(dt, pr > 0.35 && Math.random() < pr * 0.25);
+    // 懐中電灯のちらつきは、霊が見えない除霊役への気配の合図。指示役には不要なので付けない
+    this.updateFlashlight(dt, this.role === 'exo' && pr > 0.35 && Math.random() < pr * 0.12);
     if (this.role !== 'exo') return;
     const nEl = this.noiseCv;
     nEl.style.opacity = (pr * 0.4).toFixed(3);
@@ -1052,6 +1075,7 @@ export class Game {
       if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.map?.dispose(); m.dispose(); });
     });
     this.post?.dispose();
+    this.sfx.calm();
     this.renderer.renderLists.dispose();
   }
 }
