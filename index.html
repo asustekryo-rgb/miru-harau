@@ -126,19 +126,32 @@
       <h3>目的</h3>
       <p>屋敷に散らばる御札を3枚集めると、奥の間の封印が解けます。奥の間の「主」を祓い、夜明けまでに二人そろって玄関から脱出してください。</p>
       <h3>指示役</h3>
-      <p>霊がすべて見えますが、攻撃できません。霊が赤く光っている間（実体化中）だけ攻撃が当たります。弱点（赤い光の玉）の位置も見えます。</p>
+      <p>屋敷は暗く、懐中電灯だけが頼りです。ただし霊だけは闇の中に浮かんで見えます。霊が赤く光っている間（実体化中）だけ攻撃が当たります。弱点（赤い光の玉）の位置と、攻撃の範囲（床の赤い扇）も見えます。</p>
       <ul>
-        <li><b>印</b>：画面中央の霊か場所に目印を付けます。霊に付けた印は霊について動きます（3回まで、8秒で回復）</li>
+        <li><b>印</b>：画面中央の霊か場所に目印を付けます。霊に付けると、その間は除霊役にも霊がぼんやり見えます（3回まで、8秒で回復）</li>
         <li><b>今！／危／待</b>：除霊役のスマホを振動させる合図</li>
         <li><b>視</b>：押している間ズーム</li>
       </ul>
       <h3>除霊役</h3>
-      <p>霊は見えません。囁き声、振動、画面のノイズ、懐中電灯のちらつきで気配を感じます。</p>
+      <p>霊は見えません。囁き声、振動、画面のノイズ、懐中電灯のちらつき、床に残る血の跡で気配を感じます。</p>
       <ul>
         <li><b>祓</b>：木刀を振る。実体化中の霊にだけ当たる</li>
         <li><b>構</b>：正面からの攻撃を軽減</li>
         <li><b>塩</b>：前方の霊を5秒間見えるようにし、動きを止める</li>
-        <li><b>走</b>：押している間ダッシュ</li>
+      </ul>
+      <h3>共通の操作</h3>
+      <ul>
+        <li><b>屈</b>：しゃがむ（もう一度押すと立つ）。遅くなるが足音が消え、霊に見つかりにくい</li>
+        <li><b>走</b>：押している間ダッシュ。足音が大きく、壁越しでもすぐ気づかれる</li>
+        <li><b>避</b>：入力方向（なければ後ろ）へ跳ぶ。跳んでいる間は攻撃を受けない</li>
+      </ul>
+      <h3>霊の攻撃</h3>
+      <p>霊は腕を振り上げ、口を大きく開けて構えた後、前方へ突進してきます。構えの後半は向きが固定されるので、横に動くか「避」でかわせます。狙われると画面の縁に赤い光が出て、その方向から霊が来ることを知らせます。</p>
+      <h3>見つからないように</h3>
+      <ul>
+        <li>霊の視界は前方だけ。背後からしゃがんで近づけば気づかれない</li>
+        <li>追われても、視界から外れてしゃがんで待てば、しばらくすると見失う</li>
+        <li>御札の近くには番をする霊がいて、祓っても時間が経つと戻ってくる。廊下には巡回する霊もいる</li>
       </ul>
       <h3>コツ</h3>
       <ul>
@@ -148,7 +161,7 @@
         <li>倒れた相棒のそばに3秒いると起こせます</li>
       </ul>
       <h3>PCでの操作</h3>
-      <p>WASDで移動、ドラッグか矢印キーで視点。除霊役：Space/J 攻撃、K 構え、L 塩、Shift 走る。指示役：E 印、Q 今！、1 危、2 待、Z ズーム。</p>
+      <p>WASDで移動、ドラッグか矢印キーで視点。C しゃがむ、Shift 走る、F 回避。除霊役：Space/J 攻撃、K 構え、L 塩。指示役：E 印、Q 今！、1 危、2 待、Z ズーム。</p>
       <button class="back">戻る</button>
     </div>
   </section>
@@ -174,16 +187,22 @@
   <div id="revive" hidden><span></span><div class="track"><i></i></div></div>
   <div id="down" hidden>倒れた…</div>
   <div id="joy"><div id="joy-knob"></div></div>
+  <div id="threat"></div>
+  <div id="stealth"><span class="lbl">気配</span><span class="pips">○○○</span><span class="st"></span></div>
+  <div id="stam"><i id="stamina"></i></div>
   <div id="btns">
     <button class="act exo a1" data-a="attack">祓</button>
     <button class="act exo a2" data-a="guard">構</button>
-    <button class="act exo a3" data-a="salt">塩<b id="salt-n">2</b></button>
-    <button class="act exo a4" data-a="dash">走</button>
+    <button class="act exo a3" data-a="dodge">避</button>
+    <button class="act exo a4" data-a="salt">塩<b id="salt-n">2</b></button>
+    <button class="act a5" data-a="crouch">屈</button>
+    <button class="act a6" data-a="dash">走</button>
     <button class="act seer a1" data-a="mark">印<b id="mark-n">3</b></button>
     <button class="act seer a2 now" data-a="now">今!</button>
-    <button class="act seer a3" data-a="danger">危</button>
-    <button class="act seer a4" data-a="wait">待</button>
-    <button class="act seer a5" data-a="zoom">視</button>
+    <button class="act seer a3" data-a="dodge">避</button>
+    <button class="act seer a4" data-a="danger">危</button>
+    <button class="act seer a7 small" data-a="wait">待</button>
+    <button class="act seer a8 small" data-a="zoom">視</button>
   </div>
   <div id="rotate">スマホを横向きにしてください</div>
 </div>

@@ -2,11 +2,14 @@
 import * as THREE from 'three';
 import * as M from './map.js';
 import { buildWorld } from './world.js';
-import { makeGhost, makeAvatar, makeSword, makeMarker, Fx } from './entities.js';
-import { Sim, TYPE_IDX, ST_IDX, TIME_LIMIT, wrap } from './sim.js';
+import { makeGhost, makeAvatar, makeSword, makeMarker, Fx, Decals } from './entities.js';
+import { Sim, TYPE_IDX, ST_IDX, STANCE_IDX, ROLE_IDX, TIME_LIMIT, wrap } from './sim.js';
 
 const $ = (id) => document.getElementById(id);
 const EYE = 1.55;
+const EYE_CROUCH = 0.95;
+const NOISE_LV = { idle: 0, crouch: 0, walk: 1, run: 3 };
+const HUNTING = new Set(['alert', 'chase', 'windup', 'lunge']);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (v) => Math.round(v * 100) / 100;
 const vib = (p) => { try { navigator.vibrate?.(p); } catch { /* 非対応 */ } };
@@ -36,18 +39,23 @@ export class Game {
     const sx = M.center(E.spawn.c), sz = M.center(E.spawn.r);
     const start = { seer: [sx - 0.7, sz + 0.3], exo: [sx + 0.7, sz + 0.3] };
     const [mx, mz] = start[this.role];
-    this.me = { x: mx, z: mz, yaw: 0, pitch: 0, down: false, hp: 100, gauge: 0, revive: 0, salt: 2, guard: false, stamina: 1 };
+    this.me = {
+      x: mx, z: mz, yaw: 0, pitch: 0, down: false, hp: 100, gauge: 0, revive: 0, salt: 2, guard: false, stamina: 1,
+      crouch: false, stance: 'idle', dodgeT: -1, dodgeCd: 0, dodgeX: 0, dodgeZ: 0,
+    };
+    this.eye = EYE;
     const [px, pz] = start[this.partnerRole];
-    this.partner = { x: px, z: pz, tx: px, tz: pz, yaw: 0, tyaw: 0, down: false, stat: 0, revive: 0, guard: false, swingT: 9 };
+    this.partner = { x: px, z: pz, tx: px, tz: pz, yaw: 0, tyaw: 0, down: false, stat: 0, revive: 0, guard: false, swingT: 9, stance: 'idle' };
     this.pAvatar = makeAvatar(this.partnerRole);
     this.pAvatar.root.visible = !this.solo;
     this.scene.add(this.pAvatar.root);
 
+    // 両役とも懐中電灯（指示役は少し青白い）
+    this.flash = new THREE.SpotLight(this.role === 'seer' ? 0xdfe6ff : 0xfff1d6, 40, 22, 0.5, 0.55, 1.6);
+    this.flash.position.set(0.15, -0.1, 0);
+    this.flash.target.position.set(0, 0, -1);
+    this.camera.add(this.flash, this.flash.target);
     if (this.role === 'exo') {
-      this.flash = new THREE.SpotLight(0xfff1d6, 40, 22, 0.5, 0.55, 1.6);
-      this.flash.position.set(0.15, -0.1, 0);
-      this.flash.target.position.set(0, 0, -1);
-      this.camera.add(this.flash, this.flash.target);
       this.sword = makeSword();
       this.sword.root.position.set(0.3, -0.3, -0.42);
       this.sword.root.scale.setScalar(0.7);
@@ -59,6 +67,7 @@ export class Game {
     this.ghosts = new Map();
     this.markers = [];
     this.fx = new Fx(this.scene);
+    this.decals = new Decals(this.scene);
     this.time = 0;
     this.sendAcc = 0;
     this.hudT = 0;
@@ -123,6 +132,7 @@ export class Game {
     const p = this.partner;
     p.tx = other[0]; p.tz = other[1]; p.tyaw = other[2];
     p.down = !!other[4]; p.stat = other[5]; p.revive = other[6]; p.guard = !!other[7];
+    p.stance = STANCE_IDX[other[9]] || 'idle';
     this.sealOpen = !!s.so;
     if (this.sealOpen) this.world.openSeal();
     if (s.bd && !this.world.exitActive) this.world.setExitActive();
@@ -133,17 +143,20 @@ export class Game {
   syncGhosts(G) {
     const seen = new Set();
     for (const a of G) {
-      const [id, ti, x, y, z, yaw, si, hp, mat, rev, ceil, phase, slam, wp] = a;
+      const [id, ti, x, y, z, yaw, si, hp, mat, rev, ceil, phase, slam, wp, tg] = a;
       seen.add(id);
       let v = this.ghosts.get(id);
       if (!v) {
         const type = TYPE_IDX[ti];
-        v = { id, type, x, y, z, yaw, st: null, seed: Math.random() * 10, dying: 0, view: makeGhost(type), voice: this.sfx.voice() };
+        v = {
+          id, type, x, y, z, yaw, st: null, seed: Math.random() * 10, dying: 0, flashT: 0, twitch: 0,
+          dx: x, dz: z, view: makeGhost(type), voice: this.sfx.voice(),
+        };
         this.scene.add(v.view.root);
         this.ghosts.set(id, v);
       }
       const prev = v.st;
-      Object.assign(v, { tx: x, ty: y, tz: z, tyaw: yaw, st: ST_IDX[si], hp, mat: !!mat, rev, ceil: !!ceil, phase, slam: !!slam, wp });
+      Object.assign(v, { tx: x, ty: y, tz: z, tyaw: yaw, st: ST_IDX[si], hp, mat: !!mat, rev, ceil: !!ceil, phase, slam: !!slam, wp, target: ROLE_IDX[tg] });
       if (prev !== v.st) this.onGhostState(v);
     }
     for (const [id, v] of this.ghosts) if (!seen.has(id) && !(v.dying > 0)) this.removeGhost(id);
@@ -151,8 +164,10 @@ export class Game {
 
   onGhostState(v) {
     const pos = { x: v.tx, y: v.ty + 1.3, z: v.tz };
-    if (v.st === 'windup') this.sfx.play('screech', pos);
-    else if (v.st === 'roar') this.sfx.play('roar', pos);
+    if (v.st === 'windup') {
+      this.sfx.play('screech', pos);
+      if (v.target === this.role && Math.hypot(v.tx - this.me.x, v.tz - this.me.z) < 9) vib([60, 40, 60]);
+    } else if (v.st === 'roar') this.sfx.play('roar', pos);
     else if (v.st === 'dead' && !(v.dying > 0)) v.dying = 1.4;
   }
 
@@ -169,8 +184,11 @@ export class Game {
     const mine = ev.role === this.role;
     switch (ev.e) {
       case 'hit':
-        this.fx.burst(ev.x, ev.y, ev.z, ev.weak ? 0xff4040 : 0xffffff, ev.weak ? 40 : 22, 3.5, 0.6);
+        this.fx.burst(ev.x, ev.y, ev.z, ev.weak ? 0xff4040 : 0xffffff, ev.weak ? 30 : 16, 3.5, 0.6);
+        this.fx.burst(ev.x, ev.y, ev.z, 0x5a0000, ev.weak ? 60 : 35, 3, 0.9, 0.07, -9, null, false);
+        this.decals.add(ev.x + (Math.random() - 0.5), ev.z + (Math.random() - 0.5), ev.weak ? 1.0 : 0.7);
         this.sfx.play('hit', ev);
+        this.sfx.play('gore', ev);
         if (this.role === 'exo') vib(40);
         this.toast(ev.weak ? '急所に入った！' : '手応えあり', 1);
         break;
@@ -182,11 +200,19 @@ export class Game {
         const v = this.ghosts.get(ev.gid);
         if (v && !(v.dying > 0)) v.dying = 1.4;
         this.fx.burst(ev.x, ev.y, ev.z, 0xffe8a0, 80, 4, 1.4, 0.12, 0.5);
+        this.fx.burst(ev.x, ev.y, ev.z, 0x4a0000, 90, 4.5, 1.1, 0.09, -9, null, false);
+        this.decals.add(ev.x, ev.z, ev.type === 'boss' ? 3 : 1.6, 60);
         this.sfx.play('exorcise', ev);
+        this.sfx.play('gore', ev);
         this.toast(ev.type === 'boss' ? '主を祓った！' : '除霊した', 2);
         break;
       }
-      case 'hurt':
+      case 'hurt': {
+        // 襲われた瞬間だけ、除霊役にも霊の姿が一瞬見える
+        const v = this.ghosts.get(ev.gid);
+        if (v) v.flashT = 0.45;
+        const who = mine ? this.me : this.partner;
+        this.decals.add(who.x + (Math.random() - 0.5) * 0.6, who.z + (Math.random() - 0.5) * 0.6, 0.5);
         if (mine) {
           this.sfx.play('hurt');
           const el = $('hurt');
@@ -196,6 +222,30 @@ export class Game {
           this.shake = ev.guarded ? 0.1 : 0.3;
           if (ev.guarded) this.toast('受け止めた', 1);
         } else this.toast('相棒が襲われている！', 1.2);
+        break;
+      }
+      case 'notice':
+        if (mine) {
+          this.toast('見つかった！', 1.4);
+          this.sfx.play('notice');
+          vib([40, 30, 40]);
+        }
+        break;
+      case 'lost':
+        if (mine) this.toast('振り切った…', 1.4);
+        break;
+      case 'dodged':
+        if (mine) this.toast('回避！', 0.8);
+        break;
+      case 'lunge': {
+        const v = this.ghosts.get(ev.gid);
+        if (v) this.sfx.play('lunge', { x: v.x, y: v.y + 1.2, z: v.z });
+        break;
+      }
+      case 'respawn':
+        this.sfx.play('wail', { x: ev.x, y: 1.5, z: ev.z });
+        this.decals.add(ev.x, ev.z, 1.2, 40);
+        this.toast(this.role === 'seer' ? '霊が湧いた…' : '…どこかで何かが蘇った', 2);
         break;
       case 'down':
         this.toast(mine ? '倒れた…' : '相棒が倒れた！近くに行って起こせ', 2.5);
@@ -292,30 +342,63 @@ export class Game {
     me.yaw -= kl.x * dt * 2.2;
     me.pitch = clamp(me.pitch + kl.y * dt * 1.6, -1.25, 1.25);
 
+    me.dodgeT -= dt;
+    me.dodgeCd -= dt;
     if (!me.down && !this.over) {
       const mv = inp.moveVec();
       const moving = mv.x !== 0 || mv.y !== 0;
-      const dash = this.role === 'exo' && inp.held('dash') && me.stamina > 0.05 && moving;
-      let speed = this.role === 'exo' ? (dash ? 5.0 : 3.0) : 2.7;
-      me.guard = this.role === 'exo' && inp.held('guard');
-      if (me.guard) speed *= 0.45;
-      me.stamina = clamp(me.stamina + (dash ? -0.28 : 0.15) * dt, 0, 1);
       const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw), rx = Math.cos(me.yaw), rz = -Math.sin(me.yaw);
+      const blocks = M.blocksPlayerFn(this.sealOpen);
+      if (inp.pressed('crouch')) me.crouch = !me.crouch;
+      const dash = inp.held('dash') && me.stamina > 0.05 && moving;
+      if (dash) me.crouch = false;
+      me.guard = this.role === 'exo' && inp.held('guard');
+
+      // 回避：入力方向（なければ後ろ）へ素早く跳ぶ。跳んでいる間は無敵
+      if (inp.pressed('dodge') && me.dodgeCd <= 0 && me.stamina >= 0.25) {
+        let dx = fx * mv.y + rx * mv.x, dz = fz * mv.y + rz * mv.x;
+        if (!moving) { dx = -fx; dz = -fz; }
+        const l = Math.hypot(dx, dz) || 1;
+        me.dodgeX = dx / l; me.dodgeZ = dz / l;
+        me.dodgeT = 0.3;
+        me.dodgeCd = 0.9;
+        me.stamina -= 0.25;
+        me.crouch = false;
+        this.sfx.play('dodge');
+      }
+
       const bx = me.x, bz = me.z;
-      M.moveCircle(me, (fx * mv.y + rx * mv.x) * speed * dt, (fz * mv.y + rz * mv.x) * speed * dt, 0.3, M.blocksPlayerFn(this.sealOpen));
+      if (me.dodgeT > 0) {
+        M.moveCircle(me, me.dodgeX * 7.5 * dt, me.dodgeZ * 7.5 * dt, 0.3, blocks);
+      } else {
+        let speed = this.role === 'exo' ? 3.0 : 2.8;
+        if (me.crouch) speed = 1.4;
+        if (dash) speed = this.role === 'exo' ? 5.0 : 4.8;
+        if (me.guard) speed *= 0.45;
+        M.moveCircle(me, (fx * mv.y + rx * mv.x) * speed * dt, (fz * mv.y + rz * mv.x) * speed * dt, 0.3, blocks);
+      }
+      me.stamina = clamp(me.stamina + (dash ? -0.28 : 0.15) * dt, 0, 1);
       const moved = Math.hypot(me.x - bx, me.z - bz);
+      me.stance = me.crouch ? 'crouch' : dash ? 'run' : moving || me.dodgeT > 0 ? 'walk' : 'idle';
       this.stepAcc += moved;
-      this.bob += moved * 4.5;
+      this.bob += moved * (me.crouch ? 3 : 4.5);
       if (this.stepAcc > (dash ? 0.95 : 0.75)) {
         this.stepAcc = 0;
-        this.sfx.play('step');
+        if (!me.crouch) this.sfx.play('step');
       }
       this.actions(dt);
-    } else me.guard = false;
+    } else {
+      me.guard = false;
+      me.stance = 'idle';
+    }
+    const ps = {
+      x: r2(me.x), z: r2(me.z), yaw: r2(me.yaw), pitch: r2(me.pitch), guard: me.guard ? 1 : 0,
+      st: me.stance, dg: me.dodgeT > -0.05 ? 1 : 0,
+    };
 
     this.sendAcc += dt;
     if (this.isHost) {
-      this.sim.setPlayer(this.role, me);
+      this.sim.setPlayer(this.role, ps);
       this.sim.update(dt);
       const snap = this.sim.snapshot();
       this.applySnap(snap);
@@ -325,7 +408,7 @@ export class Game {
       }
     } else if (this.sendAcc >= 0.05) {
       this.sendAcc = 0;
-      this.send({ t: 'ps', x: r2(me.x), z: r2(me.z), yaw: r2(me.yaw), pitch: r2(me.pitch), guard: me.guard ? 1 : 0 }, true);
+      this.send({ t: 'ps', ...ps }, true);
     }
 
     this.updateVisuals(dt);
@@ -397,8 +480,12 @@ export class Game {
     this.shake = Math.max(0, this.shake - dt);
     const sh = this.shake * 0.15;
     const bobY = me.down ? 0 : Math.sin(this.bob) * 0.035;
-    cam.position.set(me.x + (Math.random() - 0.5) * sh, (me.down ? 0.45 : EYE + bobY) + (Math.random() - 0.5) * sh, me.z);
-    cam.rotation.set(me.down ? -0.2 : me.pitch, me.yaw, me.down ? 0.5 : 0);
+    this.eye += ((me.crouch ? EYE_CROUCH : EYE) - this.eye) * Math.min(1, dt * 10);
+    // 回避中は跳んだ方向へ少し傾く
+    const side = me.dodgeT > 0 ? (me.dodgeX * Math.cos(me.yaw) - me.dodgeZ * Math.sin(me.yaw)) * -0.18 : 0;
+    this.roll = (this.roll || 0) + (side - (this.roll || 0)) * Math.min(1, dt * 14);
+    cam.position.set(me.x + (Math.random() - 0.5) * sh, (me.down ? 0.45 : this.eye + bobY) + (Math.random() - 0.5) * sh, me.z);
+    cam.rotation.set(me.down ? -0.2 : me.pitch, me.yaw, me.down ? 0.5 : this.roll);
     const fov = this.role === 'seer' && this.input.held('zoom') && !me.down ? 30 : 70;
     if (Math.abs(cam.fov - fov) > 0.1) {
       cam.fov += (fov - cam.fov) * Math.min(1, dt * 10);
@@ -409,12 +496,34 @@ export class Game {
     this.updateGhostViews(dt);
     this.updateMarkers();
     this.fx.update(dt);
+    this.decals.update(dt);
     this.world.update(dt, this.time);
     if (this.sfx.ok) {
       const f = this.tmpV.set(0, 0, -1).applyQuaternion(cam.quaternion);
       this.sfx.setListener(cam.position.x, cam.position.y, cam.position.z, f.x, f.y, f.z);
     }
-    if (this.role === 'exo') this.updatePresence(dt);
+    this.updatePresence(dt);
+    this.updateThreat();
+  }
+
+  // 自分を狙う攻撃の予兆：画面の縁に、霊のいる方向から赤い光が迫る
+  updateThreat() {
+    const el = $('threat');
+    let best = null, urg = 0;
+    for (const v of this.ghosts.values()) {
+      if (v.dying > 0 || v.target !== this.role || (v.st !== 'windup' && v.st !== 'lunge')) continue;
+      if (Math.hypot(v.x - this.me.x, v.z - this.me.z) > 9) continue;
+      const u = v.st === 'lunge' ? 1 : v.wp || 0;
+      if (u >= urg) { urg = u; best = v; }
+    }
+    if (!best || this.me.down) { el.style.opacity = 0; return; }
+    const rel = -wrap(Math.atan2(-(best.x - this.me.x), -(best.z - this.me.z)) - this.me.yaw);
+    const R = Math.min(innerWidth, innerHeight) * 0.42;
+    el.style.left = innerWidth / 2 + Math.sin(rel) * R + 'px';
+    el.style.top = innerHeight / 2 - Math.cos(rel) * R + 'px';
+    el.style.transform = `translate(-50%,-50%) rotate(${rel}rad) scale(${0.7 + urg * 0.8})`;
+    el.style.opacity = (0.35 + urg * 0.65).toFixed(2);
+    el.classList.toggle('strike', urg > 0.5);
   }
 
   animSword(dt) {
@@ -454,6 +563,7 @@ export class Game {
     A.root.rotation.y = p.yaw;
     A.body.rotation.z += ((p.down ? Math.PI / 2 : 0) - A.body.rotation.z) * Math.min(1, dt * 6);
     A.body.position.y = p.down ? 0.3 : 0;
+    A.body.scale.y += ((p.stance === 'crouch' && !p.down ? 0.62 : 1) - A.body.scale.y) * Math.min(1, dt * 10);
     if (A.sword) {
       p.swingT += dt;
       const u = p.swingT / 0.3;
@@ -468,73 +578,102 @@ export class Game {
   updateGhostViews(dt) {
     const t = this.time, seer = this.role === 'seer';
     const k = this.isHost ? 1 : Math.min(1, dt * 12);
+    const ease = (cur, target, rate) => cur + (target - cur) * Math.min(1, dt * rate);
     for (const [id, v] of this.ghosts) {
       v.x += (v.tx - v.x) * k;
       v.y += (v.ty - v.y) * k;
       v.z += (v.tz - v.z) * k;
       v.yaw = lerpAngle(v.yaw, v.tyaw, k);
+      v.flashT -= dt;
       const V = v.view;
       V.root.position.set(v.x, v.y, v.z);
       V.root.rotation.y = v.yaw;
+      const wp = v.wp || 0;
+      const crawl = v.type === 'crawl';
 
-      if (v.type === 'crawl') {
-        V.body.rotation.z += ((v.ceil ? Math.PI : 0) - V.body.rotation.z) * Math.min(1, dt * 6);
-        V.ring.position.y = -v.y + 0.03;
-      } else V.body.position.y = 0.12 + Math.sin(t * 1.7 + v.seed) * 0.07;
+      // ---- 動き ----
+      if (crawl) {
+        V.body.rotation.z = ease(V.body.rotation.z, v.ceil ? Math.PI : 0, 6);
+        V.body.rotation.x = ease(V.body.rotation.x, v.st === 'windup' ? -0.35 * wp : v.st === 'lunge' ? 0.2 : 0, 10);
+        V.ring.position.y = V.fan.position.y = -v.y + 0.03;
+        const moving = Math.hypot(v.x - (v.px ?? v.x), v.z - (v.pz ?? v.z)) > dt * 0.3;
+        V.legs.forEach((l, i) => { l.pivot.rotation.x = moving ? Math.sin(t * 14 + i * Math.PI) * 0.35 : 0; });
+      } else {
+        V.body.position.y = 0.12 + Math.sin(t * 1.7 + v.seed) * 0.07;
+        // 前かがみ → 構えで反り返り → 突進で前に倒れ込む
+        const lean = v.st === 'windup' ? 0.1 + wp * 0.15 : v.st === 'lunge' ? -0.55 : v.st === 'recover' ? -0.25 : -0.15;
+        V.body.rotation.x = ease(V.body.rotation.x, lean, v.st === 'lunge' ? 25 : 8);
+      }
+      v.px = v.x; v.pz = v.z;
 
       let raise = 0.1 + Math.sin(t * 2 + v.seed) * 0.08;
-      if (v.st === 'windup') raise = (v.wp || 0) * 1.6;
-      else if (v.st === 'recover') raise = 1.0;
+      if (v.st === 'windup') raise = wp * 2.4;
+      else if (v.st === 'lunge') raise = 1.5;
+      else if (v.st === 'recover') raise = 0.9;
       else if (v.st === 'stun') raise = -0.3;
-      for (const a of V.arms) a.pivot.rotation.x += (a.base + raise * (v.type === 'crawl' ? 0.4 : 1) - a.pivot.rotation.x) * Math.min(1, dt * 10);
+      else if (v.st === 'alert') raise = 0.6;
+      for (const a of V.arms) a.pivot.rotation.x = ease(a.pivot.rotation.x, a.base + raise * (crawl ? 0.5 : 1), v.st === 'lunge' ? 25 : 10);
+
+      // 首：普段は傾いてときどき痙攣、構えるとこちらを真っ直ぐ見る
+      if (Math.random() < dt * 0.6) v.twitch = 0.18;
+      v.twitch -= dt;
+      const tilt = crawl ? V.headTilt : HUNTING.has(v.st) && v.st !== 'chase' ? 0 : V.headTilt;
+      V.head.rotation.z = ease(V.head.rotation.z, tilt, 8) + (v.twitch > 0 ? (Math.random() - 0.5) * 0.5 : 0);
+      const gape = v.st === 'windup' ? 0.6 + wp * 1.8 : v.st === 'lunge' ? 2.6 : v.st === 'alert' ? 1.4 : 0.5 + Math.sin(t * 3 + v.seed) * 0.1;
+      V.mouth.scale.y = ease(V.mouth.scale.y, gape, 12);
+
+      // 這い女は血の跡を残す（除霊役の手がかりにもなる）
+      const dd = Math.hypot(v.x - v.dx, v.z - v.dz);
+      if (dd > (crawl ? 1.5 : 3.5) && v.st !== 'dormant') {
+        this.decals.add(v.x, v.z, crawl ? (v.ceil ? 0.3 : 0.55) : 0.3, crawl ? 30 : 20);
+        v.dx = v.x; v.dz = v.z;
+      }
 
       if (v.dying > 0) {
         v.dying -= dt;
         const f = Math.max(0, v.dying / 1.4);
         V.root.visible = true;
-        V.robe.color.setHex(0xfff0c0);
-        V.robe.opacity = 0.9 * f;
-        V.skin.opacity = 0.8 * f;
-        V.hair.opacity = 0.9 * f;
+        V.look(0.9 * f, 0xfff0c0);
+        V.eyeGlow(f);
         V.body.scale.setScalar(V.baseScale * (1 + (1 - f) * 0.6));
-        V.weak.visible = V.ring.visible = V.slamRing.visible = false;
+        V.weak.visible = V.ring.visible = V.slamRing.visible = V.fan.visible = false;
         v.voice?.set(v.x, v.y + 1.3, v.z, 0);
         if (v.dying <= 0) this.removeGhost(id);
         continue;
       }
 
+      // ---- 見え方 ----
+      const attacking = v.st === 'windup' && !v.slam;
       if (seer) {
         V.root.visible = true;
-        const flick = 0.85 + Math.random() * 0.15;
-        if (v.mat) {
-          V.robe.color.setHex(v.type === 'boss' ? 0xff5050 : 0xff7a7a);
-          V.robe.opacity = 0.85;
-          V.skin.opacity = 0.9;
-        } else {
-          V.robe.color.setHex(v.type === 'boss' ? 0xffc8c8 : 0xdde6ff);
-          V.robe.opacity = 0.42 * flick;
-          V.skin.opacity = 0.55 * flick;
-        }
-        V.hair.opacity = 0.92;
+        const flick = 0.8 + Math.random() * 0.2;
+        V.look(v.mat ? 0.92 : 0.55 * flick, v.mat ? 0xff9a9a : 0xffffff);
+        V.eyeGlow(v.mat || HUNTING.has(v.st) ? 1 : 0.6);
         V.ring.visible = v.mat;
-        V.weak.visible = v.type !== 'crawl' && v.st !== 'dormant';
+        V.weak.visible = !crawl && v.st !== 'dormant';
         if (V.weak.visible) {
-          const wp = WEAK_POS[v.type === 'boss' ? 'boss' + v.phase : 'wander'];
-          V.weak.position.set(wp[0], wp[1], wp[2]);
+          const w = WEAK_POS[v.type === 'boss' ? 'boss' + v.phase : 'wander'];
+          V.weak.position.set(w[0], w[1], w[2]);
           V.weak.scale.setScalar(1 + Math.sin(t * 8) * 0.3);
         }
+        V.fan.visible = attacking;
         V.slamRing.visible = v.st === 'windup' && v.slam;
-        if (V.slamRing.visible) V.slamRing.scale.setScalar(0.3 + 0.7 * (v.wp || 0));
       } else {
-        V.root.visible = v.rev > 0;
-        if (V.root.visible) {
-          V.robe.color.setHex(0xe8f0ff);
-          V.robe.opacity = 0.28 + Math.random() * 0.12;
-          V.skin.opacity = 0.35;
-          V.hair.opacity = 0.6;
-          V.weak.visible = V.ring.visible = V.slamRing.visible = false;
+        // 除霊役：塩で暴いた時／襲われた瞬間／指示役の印が付いている間だけ見える
+        const marked = this.markers.some((m) => m.gid === id && t < m.until);
+        const shown = v.flashT > 0 || v.rev > 0 || marked;
+        V.root.visible = shown;
+        if (shown) {
+          const op = v.flashT > 0 ? 0.9 : v.rev > 0 ? 0.45 : 0.14 + Math.random() * 0.1;
+          V.look(op, 0xd8e0ff);
+          V.eyeGlow(marked && !(v.flashT > 0 || v.rev > 0) ? 0.7 : 1);
+          V.weak.visible = V.ring.visible = false;
+          V.fan.visible = attacking;
+          V.slamRing.visible = v.st === 'windup' && v.slam;
         }
       }
+      if (V.fan.visible) V.fan.material.opacity = 0.12 + wp * 0.35;
+      if (V.slamRing.visible) V.slamRing.scale.setScalar(0.3 + 0.7 * wp);
       if (v.voice) {
         const lvl = v.st === 'dormant' ? 0.06 : (v.st === 'windup' ? 0.7 : 0.35) * (seer ? 0.6 : 1);
         v.voice.set(v.x, v.y + 1.3, v.z, lvl);
@@ -590,6 +729,8 @@ export class Game {
     }
     this.presence += (p - this.presence) * Math.min(1, dt * 4);
     const pr = this.presence;
+    this.flash.intensity = pr > 0.35 && Math.random() < pr * 0.25 ? 6 : 40;
+    if (this.role !== 'exo') return;
     const nEl = this.noiseCv;
     nEl.style.opacity = (pr * 0.4).toFixed(3);
     if (pr > 0.02) {
@@ -602,7 +743,6 @@ export class Game {
       }
       this.noiseG.putImageData(im, 0, 0);
     }
-    this.flash.intensity = pr > 0.35 && Math.random() < pr * 0.25 ? 6 : 40;
     this.vibT -= dt;
     if (pr > 0.15 && this.vibT <= 0) {
       vib(Math.round(20 + pr * 40));
@@ -635,6 +775,19 @@ export class Game {
     }
     $('salt-n').textContent = me.salt;
     $('mark-n').textContent = this.charges;
+
+    // 気配（足音の大きさ）と、霊に追われているか
+    const lv = NOISE_LV[me.stance] ?? 0;
+    const hunted = [...this.ghosts.values()].some((v) => !(v.dying > 0) && v.target === this.role && HUNTING.has(v.st));
+    const sl = $('stealth');
+    sl.querySelector('.pips').textContent = '●'.repeat(lv) + '○'.repeat(3 - lv);
+    sl.querySelector('.st').textContent = hunted ? '追われている' : me.crouch ? 'しゃがみ' : me.stance === 'run' ? '走り' : '';
+    sl.classList.toggle('hunted', hunted);
+    sl.classList.toggle('quiet', me.crouch && !hunted);
+    document.querySelectorAll('.act[data-a="crouch"]').forEach((b) => b.classList.toggle('lit', me.crouch));
+    const st = $('stamina');
+    st.style.width = (me.stamina * 100).toFixed(0) + '%';
+    st.parentElement.classList.toggle('full', me.stamina > 0.99);
 
     const rv = $('revive');
     if (me.down || (p.down && !this.solo)) {

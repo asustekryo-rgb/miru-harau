@@ -156,6 +156,25 @@ export class Sfx {
       case 'salt': this.burst('highpass', 4000, 8000, 0.7, 0.35, 0.25, d); break;
       case 'revive': [523, 659, 784].forEach((f, i) => this.tone('sine', f, f, 0.5, 0.2, d, i * 0.1)); break;
       case 'creak': this.tone('sawtooth', 95, 70, 0.7, 0.05, d); break;
+      case 'gore':
+        this.burst('lowpass', 700, 120, 3, 0.35, 0.5, d);
+        this.burst('bandpass', 1400, 300, 5, 0.2, 0.25, d, 0.05);
+        break;
+      case 'notice':
+        this.tone('sawtooth', 880, 932, 0.5, 0.18, d);
+        this.tone('sawtooth', 1244, 1175, 0.5, 0.12, d);
+        this.burst('highpass', 3000, 5000, 1, 0.4, 0.1, d);
+        break;
+      case 'lunge':
+        this.burst('bandpass', 2400, 700, 3, 0.3, 0.5, d);
+        this.tone('sawtooth', 220, 90, 0.3, 0.3, d);
+        break;
+      case 'wail':
+        this.tone('sine', 260, 180, 2.2, 0.25, d);
+        this.tone('sine', 390, 270, 2.2, 0.12, d, 0.1);
+        this.burst('bandpass', 700, 400, 6, 2.0, 0.15, d);
+        break;
+      case 'dodge': this.burst('bandpass', 1800, 400, 1.5, 0.18, 0.25, d); break;
       case 'win': [523, 659, 784, 1046].forEach((f, i) => this.tone('triangle', f, f, 1.2, 0.2, d, i * 0.15)); break;
       case 'lose':
         this.tone('sawtooth', 110, 40, 2.5, 0.3, d);

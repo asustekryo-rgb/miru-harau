@@ -145,16 +145,10 @@ export function buildWorld(scene, role) {
     candles.push({ light, fl, base: 5, seed: Math.random() * 10 });
   }
 
-  // 役割別ライティング
-  if (role === 'exo') {
-    scene.background = new THREE.Color(0x000000);
-    scene.fog = new THREE.Fog(0x000000, 1.5, 16);
-    scene.add(new THREE.AmbientLight(0x4a5570, 0.6));
-  } else {
-    scene.background = new THREE.Color(0x070a14);
-    scene.fog = new THREE.Fog(0x070a14, 6, 30);
-    scene.add(new THREE.AmbientLight(0x9aa8dd, 2.4));
-  }
+  // 両役とも同じ暗さ（懐中電灯と蝋燭だけが頼り）。指示役は霊だけが闇に浮かんで見える
+  scene.background = new THREE.Color(0x000000);
+  scene.fog = new THREE.Fog(0x000000, 1.5, 16);
+  scene.add(new THREE.AmbientLight(role === 'seer' ? 0x4a5078 : 0x4a5570, 0.6));
 
   const W = {
     root, raycast, items, sealOpened: false, exitActive: false,
