@@ -1,6 +1,7 @@
 // 霊・プレイヤーの姿・刀・印・パーティクル・血痕
 import * as THREE from 'three';
 import { glyph, ofuda, ghostFace, ghostRobe, ghostSkin, bloodTex, flame, hairTex } from './textures.js';
+import { hasGhostModel, makeModelBody, MODEL } from './ghostmodel.js';
 
 const DS = THREE.DoubleSide;
 function basic(color, opacity = 1, extra = {}) {
@@ -184,7 +185,109 @@ function spiderLeg(parent, pivotAt, knee, foot, m) {
 }
 
 // 霊の正面は -Z。弱点は体のローカル座標で配置
+// 床の目印（実体化の輪・攻撃範囲の扇・範囲攻撃の輪）と弱点
+function markers(root, body, boss) {
+  const weak = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), basic(0xff2030, 0.95, { blending: THREE.AdditiveBlending }));
+  weak.renderOrder = 10;
+  body.add(weak);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.68, 40).rotateX(-Math.PI / 2), basic(0xff3040, 0.8));
+  ring.position.y = 0.03;
+  ring.visible = false;
+  const slamRing = new THREE.Mesh(new THREE.RingGeometry(3.3, 3.6, 64).rotateX(-Math.PI / 2), basic(0xff2020, 0.6));
+  slamRing.position.y = 0.04;
+  slamRing.visible = false;
+  const reach = boss ? 3.2 : 2.5;
+  const fan = new THREE.Mesh(
+    new THREE.CircleGeometry(reach, 24, Math.PI / 2 - 0.45, 0.9).rotateX(-Math.PI / 2),
+    basic(0xff1010, 0.25, { depthWrite: false }),
+  );
+  fan.position.y = 0.05;
+  fan.visible = false;
+  root.add(ring, slamRing, fan);
+  return { weak, ring, slamRing, fan };
+}
+
+// 3Dモデルの霊（彷徨い・主）。動きは ghostmodel.js のシェーダーで付ける
+function makeModelGhost(type) {
+  const T = tex();
+  const boss = type === 'boss';
+  const height = boss ? 2.55 : 1.75;
+  const baseTint = boss ? 0xd88a8a : 0xffffff;
+  const B = makeModelBody(height, baseTint);
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  body.add(B.group);
+  const extra = {
+    skin: basic(0xffffff, 0.9, { map: T.skinBoss }),
+    robe: basic(0x3a1010, 0.9),
+    gore: basic(0x160000, 0.9, { map: T.blood }),
+    boneM: basic(0xefe6cc, 0.95),
+  };
+  // 眼窩の奥で光る目（モデルの顔の位置に合わせる）
+  const eyes = [];
+  const eyePos = boss
+    ? [[MODEL.eyeZ, 0], [-MODEL.eyeZ, 0], [MODEL.eyeZ * 0.6, 0.022], [-MODEL.eyeZ * 0.6, 0.022]]
+    : [[MODEL.eyeZ, 0], [-MODEL.eyeZ, 0]];
+  for (const [z, dy] of eyePos) {
+    const e = new THREE.Sprite(new THREE.SpriteMaterial({ map: T.glow, color: 0xff2a10, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    e.position.set(MODEL.eyeX, MODEL.eyeY + dy, z);
+    e.scale.setScalar(0.035);
+    B.group.add(e);
+    eyes.push(e);
+  }
+  // 主は背中から余分な腕が生えている
+  const arms = [];
+  if (boss) {
+    for (const [x, y, s] of [[0.22, 1.95, 0.7], [-0.22, 1.95, -0.7], [0.26, 1.65, 1.1], [-0.26, 1.65, -1.1]]) {
+      const a = arm(body, x, y, 0.16, extra, s, s < 0);
+      a.pivot.scale.setScalar(1.35);
+      arms.push(a);
+    }
+  }
+  const mk = markers(root, body, boss);
+  const meshes = [B.mesh];
+  body.traverse((o) => { if (o.isMesh && o !== mk.weak) o.castShadow = true; });
+  const extraMats = Object.values(extra);
+  const head = new THREE.Object3D();
+  const mouth = new THREE.Object3D();
+  return {
+    root, body, head, eyes, mouth, ...mk, arms, legs: [], guts: [], type, meshes, mats: [B.mat, ...extraMats],
+    model: B,
+    baseScale: 1,
+    headTilt: 0.35,
+    weakPos: { wander: [0, 1.0, 0.22], boss1: [0, 1.45, -0.34], boss2: [0, 1.45, 0.34], boss3: [0, 2.35, 0] },
+    look(opacity, tint = 0xffffff) {
+      // 奥の面が透けて白っぽくならないよう、深度は常に書く。ほぼ不透明なら不透明として描く
+      B.mat.opacity = opacity;
+      B.mat.depthWrite = true;
+      const tr = opacity < 0.97;
+      if (B.mat.transparent !== tr) {
+        B.mat.transparent = tr;
+        B.mat.needsUpdate = true;
+      }
+      B.mat.color.setHex(tint === 0xffffff ? baseTint : tint);
+      for (const mm of extraMats) {
+        mm.opacity = opacity;
+        mm.depthWrite = opacity > 0.8;
+      }
+    },
+    eyeGlow(k) {
+      for (const e of eyes) {
+        e.material.opacity = k;
+        e.scale.setScalar(0.018 + k * 0.014);
+      }
+    },
+    setHidden(h) {
+      B.mat.colorWrite = !h;
+      for (const mm of extraMats) mm.colorWrite = !h;
+      for (const e of eyes) e.visible = !h;
+    },
+  };
+}
+
 export function makeGhost(type) {
+  if (type !== 'crawl' && hasGhostModel()) return makeModelGhost(type);
   const T = tex();
   const boss = type === 'boss';
   const m = {
@@ -302,10 +405,19 @@ export function makeGhost(type) {
   root.add(ring, slamRing, fan);
 
   const meshes = [];
-  body.traverse((o) => { if (o.isMesh && o !== weak) meshes.push(o); });
+  body.traverse((o) => {
+    if (!o.isMesh || o === weak) return;
+    meshes.push(o);
+    o.castShadow = true;
+  });
   const mats = Object.values(m);
 
   return {
+    // 除霊役用：姿は描かず影だけ落とす
+    setHidden(h) {
+      for (const mm of mats) mm.colorWrite = !h;
+      for (const e of H.eyes) e.visible = !h;
+    },
     root, body, head: H.head, eyes: H.eyes, mouth: H.mouth, weak, ring, slamRing, fan, arms, legs, guts, type, meshes, mats,
     baseScale: boss ? 1.5 : 1,
     headTilt: type === 'crawl' ? Math.PI : 0.4,

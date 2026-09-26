@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>霊モデルの軽量化</title>
+<style>
+  body { background: #111; color: #ddd; font-family: sans-serif; padding: 16px; }
+  pre { white-space: pre-wrap; }
+</style>
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }</script>
+</head>
+<body>
+<h1>霊モデルの軽量化</h1>
+<p>assets/src/ghost_src.glb を読み込み、ポリゴン削減・テクスチャ縮小・原点合わせをして assets/models/ghost.glb に書き出します（serve.ps1 で開くこと）。</p>
+<pre id="log"></pre>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshoptSimplifier } from 'https://cdn.jsdelivr.net/npm/meshoptimizer@0.21.0/meshopt_simplifier.module.js';
+
+const params = new URLSearchParams(location.search);
+const TARGET_TRIS = +(params.get('tris') || 16000);
+const TEX_SIZE = +(params.get('tex') || 1024);
+const log = (s) => { document.getElementById('log').textContent += s + '\n'; };
+
+async function run() {
+  await MeshoptSimplifier.ready;
+  const gltf = await new GLTFLoader().loadAsync('../assets/src/ghost_src.glb');
+  gltf.scene.updateMatrixWorld(true);
+  const geos = [];
+  let srcMat = null;
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.clone();
+    g.applyMatrix4(o.matrixWorld);
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    geos.push(g.index ? g : g.toNonIndexed());
+    srcMat = o.material;
+  });
+  let geo = mergeGeometries(geos.map((g) => (g.index ? g : mergeVertices(g))));
+  geo = mergeVertices(geo, 1e-6);
+  const srcTris = geo.index.count / 3;
+  log(`元: ${srcTris} 三角形, ${geo.attributes.position.count} 頂点`);
+
+  // 原点を足元の中心に、高さを 1.0 に正規化
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const size = bb.getSize(new THREE.Vector3());
+  log(`元のサイズ: ${size.x.toFixed(3)} x ${size.y.toFixed(3)} x ${size.z.toFixed(3)}`);
+  geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+  geo.scale(1 / size.y, 1 / size.y, 1 / size.y);
+
+  // ポリゴン削減（テクスチャの継ぎ目を保つため UV も誤差計算に含める）
+  const pos = geo.attributes.position.array;
+  const idx = new Uint32Array(geo.index.array);
+  // UV の継ぎ目で頂点が分かれているので、境界を固定するとテクスチャが崩れにくい
+  const [newIdx, err] = MeshoptSimplifier.simplify(idx, pos, 3, TARGET_TRIS * 3, 0.05, ['LockBorder']);
+  log(`削減後: ${newIdx.length / 3} 三角形（誤差 ${err.toFixed(4)}）`);
+
+  // 使われている頂点だけに詰め直す
+  const remap = new Int32Array(geo.attributes.position.count).fill(-1);
+  let n = 0;
+  for (let i = 0; i < newIdx.length; i++) if (remap[newIdx[i]] < 0) remap[newIdx[i]] = n++;
+  const out = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'uv']) {
+    const a = geo.attributes[name];
+    const arr = new Float32Array(n * a.itemSize);
+    for (let v = 0; v < remap.length; v++) {
+      if (remap[v] < 0) continue;
+      for (let k = 0; k < a.itemSize; k++) arr[remap[v] * a.itemSize + k] = a.array[v * a.itemSize + k];
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize));
+  }
+  const outIdx = new Uint32Array(newIdx.length);
+  for (let i = 0; i < newIdx.length; i++) outIdx[i] = remap[newIdx[i]];
+  out.setIndex(new THREE.BufferAttribute(n > 65535 ? outIdx : new Uint16Array(outIdx), 1));
+  out.computeVertexNormals();
+  log(`出力: ${out.index.count / 3} 三角形, ${n} 頂点`);
+
+  // テクスチャを縮小して JPEG に
+  const img = srcMat.map.image;
+  log(`元テクスチャ: ${img.width} x ${img.height}`);
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = TEX_SIZE;
+  cv.getContext('2d').drawImage(img, 0, 0, TEX_SIZE, TEX_SIZE);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData.mimeType = 'image/jpeg';
+
+  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(out, mat);
+  mesh.name = 'ghost';
+  const scene = new THREE.Scene();
+  scene.add(mesh);
+  scene.userData = {
+    title: 'Horror Ghost Character - Blood Stained Spirit',
+    author: 'adhamasalah (https://sketchfab.com/adhamAsalah)',
+    license: 'CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)',
+    source: 'https://sketchfab.com/3d-models/horror-ghost-character-blood-stained-spirit-ed1a90be19404450935720f7abaae471',
+    changes: 'Reduced polygon count, downscaled texture, normalized origin/scale (miru-harau)',
+  };
+  const glb = await new GLTFExporter().parseAsync(scene, { binary: true });
+  log(`GLB: ${(glb.byteLength / 1024 / 1024).toFixed(2)} MB`);
+  const res = await fetch('../assets/models/ghost.glb', { method: 'PUT', body: glb });
+  log(res.ok ? '書き出し完了: assets/models/ghost.glb' : '書き出し失敗: ' + res.status);
+  window.__done = { tris: out.index.count / 3, mb: glb.byteLength / 1048576, ok: res.ok };
+}
+run().catch((e) => { log('エラー: ' + e.stack); window.__done = { error: String(e) }; });
+</script>
+</body>
+</html>

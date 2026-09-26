@@ -10,7 +10,10 @@
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }</script>
 </head>
 <body>
 <canvas id="gl"></canvas>
@@ -28,6 +31,8 @@
         <button id="btn-help">遊び方</button>
         <button id="btn-solo">ひとりで練習</button>
         <button id="btn-local">同じ端末でテスト</button>
+        <button id="btn-quality">画質：高</button>
+        <button id="btn-credits">クレジット</button>
       </div>
       <div id="solo-pick" class="pick" hidden>
         <div class="stage-pick"></div>
@@ -40,6 +45,7 @@
         <p id="local-status" class="note">同じブラウザで2つのタブを開き、片方でホスト、もう片方で参加を押します。</p>
       </div>
       <p class="note">二台のスマホを同じWi-Fi（またはテザリング）につないで遊びます。<br>同じ部屋で声を掛け合ってください。</p>
+      <p class="credit-mini">3D Model: “Horror Ghost Character - Blood Stained Spirit” by adhamasalah (CC BY 4.0)</p>
     </div>
   </section>
 
@@ -120,6 +126,28 @@
       <button id="res-again">もう一度</button>
       <p id="res-wait" class="status">ホストの再開を待っています…</p>
       <button id="res-title-btn">タイトルへ</button>
+    </div>
+  </section>
+
+  <section id="s-credits" class="screen">
+    <div class="panel credits">
+      <h2>クレジット</h2>
+      <h3>3Dモデル</h3>
+      <p>
+        <a href="https://sketchfab.com/3d-models/horror-ghost-character-blood-stained-spirit-ed1a90be19404450935720f7abaae471" target="_blank" rel="noopener">“Horror Ghost Character - Blood Stained Spirit”</a><br>
+        作者：<a href="https://sketchfab.com/adhamAsalah" target="_blank" rel="noopener">adhamasalah</a><br>
+        ライセンス：<a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a><br>
+        <span class="dim">改変：ポリゴン数の削減、テクスチャの縮小、原点と大きさの調整。ゲーム内ではシェーダーで変形・発光・消滅の表現を加えています。</span>
+      </p>
+      <h3>使用ライブラリ</h3>
+      <ul>
+        <li><a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>（MIT License）</li>
+        <li><a href="https://github.com/kazuhikoarase/qrcode-generator" target="_blank" rel="noopener">qrcode-generator</a>（MIT License）</li>
+        <li><a href="https://github.com/cozmo/jsQR" target="_blank" rel="noopener">jsQR</a>（Apache License 2.0）</li>
+        <li><a href="https://github.com/zeux/meshoptimizer" target="_blank" rel="noopener">meshoptimizer</a>（MIT License、モデルの軽量化に使用）</li>
+      </ul>
+      <p class="dim">その他のテクスチャ・効果音はすべてプログラムで生成しています。</p>
+      <button class="back">戻る</button>
     </div>
   </section>
 

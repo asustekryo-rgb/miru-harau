@@ -5,11 +5,14 @@ import { RtcTransport, LocalTransport, drawQR, Scanner } from './net.js';
 import { Sfx } from './audio.js';
 import { Input } from './input.js';
 import { STAGES } from './map.js';
+import { loadGhostModel } from './ghostmodel.js';
 
 const $ = (id) => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ canvas: $('gl'), antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const sfx = new Sfx();
 const input = new Input($('touch'));
 const scanner = new Scanner();
@@ -19,6 +22,8 @@ let isHost = false;
 let solo = false;
 let myRole = 'seer';
 let stage = 0;
+let quality = 'high';
+try { quality = localStorage.getItem('mh-quality') || 'high'; } catch { /* 保存不可 */ }
 let game = null;
 let camStream = null;
 let wakeLock = null;
@@ -259,15 +264,30 @@ $('lobby-start').onclick = () => {
   startGame();
 };
 
+// ---------- 画質・クレジット ----------
+function setQuality(q) {
+  quality = q;
+  try { localStorage.setItem('mh-quality', q); } catch { /* 保存不可 */ }
+  $('btn-quality').textContent = `画質：${q === 'high' ? '高' : '軽量'}`;
+}
+setQuality(quality);
+$('btn-quality').onclick = () => setQuality(quality === 'high' ? 'low' : 'high');
+$('btn-credits').onclick = () => show('s-credits');
+
 // ---------- ゲーム ----------
-function startGame() {
+// 霊の3Dモデルは起動時から先に読み込んでおく（届かなければ手作りの霊で遊べる）
+const modelReady = loadGhostModel();
+
+async function startGame() {
   stopGame();
   sfx.init();
+  await Promise.race([modelReady, new Promise((r) => setTimeout(r, 8000))]);
+  stopGame();
   show(null);
   $('hud').hidden = false;
   document.body.classList.add('playing');
   input.reset();
-  game = new Game({ renderer, role: myRole, isHost, solo, sfx, input, send, onOver, stage });
+  game = new Game({ renderer, role: myRole, isHost, solo, sfx, input, send, onOver, stage, quality, onQuality: setQuality });
   window.__game = game;
   try {
     navigator.wakeLock?.request('screen').then((l) => { wakeLock = l; }).catch(() => {});

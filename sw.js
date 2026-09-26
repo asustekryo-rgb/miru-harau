@@ -1,9 +1,10 @@
 // 一度開けばオフライン（ローカル通信のみ）でも起動できるようにキャッシュする
-const CACHE = 'miruharau-v3';
+const CACHE = 'miruharau-v4';
 const CORE = [
   './', './index.html', './style.css',
   './js/main.js', './js/game.js', './js/sim.js', './js/map.js', './js/world.js',
   './js/entities.js', './js/textures.js', './js/audio.js', './js/input.js', './js/net.js',
+  './js/ghostmodel.js', './js/post.js', './assets/models/ghost.glb',
 ];
 
 self.addEventListener('install', (e) => {

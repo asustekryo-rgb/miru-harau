@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>霊モデルの確認</title>
+<style>
+  body { margin: 0; background: #222; color: #ddd; font-family: sans-serif; }
+  #grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .cell { position: relative; }
+  .cell span { position: absolute; left: 6px; top: 4px; font-size: 13px; }
+  canvas { width: 100%; display: block; }
+</style>
+<script type="importmap">{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }</script>
+</head>
+<body>
+<div id="grid"></div>
+<script type="module">
+// 最適化済みモデルを4方向から表示し、正面の向きと顔の高さを確かめる
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const gltf = await new GLTFLoader().loadAsync('../assets/models/ghost.glb');
+const views = [['正面(+X)', [1.9, 0.5, 0]], ['頭部 正面', [0.42, 0.9, 0]], ['頭部 横(+Z)', [0, 0.9, 0.42]], ['背面(-X)', [-1.9, 0.5, 0]]];
+for (const [label, p] of views) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const r = new THREE.WebGLRenderer({ antialias: true });
+  r.setSize(300, 420);
+  cell.appendChild(r.domElement);
+  const s = document.createElement('span');
+  s.textContent = label;
+  cell.appendChild(s);
+  document.getElementById('grid').appendChild(cell);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x333333);
+  scene.add(new THREE.AmbientLight(0xffffff, 2));
+  scene.add(gltf.scene.clone());
+  // 目安の線：高さ 0.8 / 0.9
+  for (const y of [0.85, 0.9, 0.95]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.002, 0.002), new THREE.MeshBasicMaterial({ color: y === 0.9 ? 0xff0000 : y > 0.9 ? 0x4080ff : 0x00ff00 }));
+    l.position.y = y;
+    scene.add(l);
+  }
+  const cam = new THREE.PerspectiveCamera(35, 300 / 420, 0.01, 10);
+  cam.position.set(...p);
+  cam.lookAt(0, p[1] > 0.8 ? 0.88 : 0.5, 0);
+  r.render(scene, cam);
+}
+window.__ready = true;
+</script>
+</body>
+</html>

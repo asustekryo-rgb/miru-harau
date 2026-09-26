@@ -49,3 +49,15 @@ ES Modules とカメラを使うため、**HTTPS で配信する必要があり�
 - iOS Safari は振動（Vibration API）に対応していないため、iPhoneでは振動の代わりに画面表示だけになります。マナーモード中は音も出ません
 - 接続が切れたら部屋を作り直す必要があります（自動再接続はありません）
 - 一部のルーター（APアイソレーションが有効な公衆Wi-Fiなど）では端末同士がつながりません。その場合はテザリングを使ってください
+
+## 霊の3Dモデルの作り直し
+
+`assets/models/ghost.glb` は元モデル（約20万三角形・8.6MB）を軽量化したものです（約1.6万三角形・0.8MB）。
+元モデルを `assets/src/ghost_src.glb` に置き、`serve.ps1` を起動して `http://localhost:8080/tools/optimize-model.html` を開くと作り直せます（`?tris=20000&tex=2048` で調整可）。
+`tools/preview-model.html` で向きと顔の位置を確認できます。
+
+## クレジット
+
+- 3Dモデル: [“Horror Ghost Character - Blood Stained Spirit”](https://sketchfab.com/3d-models/horror-ghost-character-blood-stained-spirit-ed1a90be19404450935720f7abaae471) by [adhamasalah](https://sketchfab.com/adhamAsalah) — [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+  - 改変: ポリゴン数の削減、テクスチャの縮小、原点と大きさの調整。ゲーム内ではシェーダーで変形・発光・消滅の表現を加えています
+- [three.js](https://threejs.org/)（MIT）、[qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator)（MIT）、[jsQR](https://github.com/cozmo/jsQR)（Apache-2.0）、[meshoptimizer](https://github.com/zeux/meshoptimizer)（MIT）

@@ -60,11 +60,13 @@ export function buildWorld(scene, role) {
   for (const k of Object.keys(floors)) {
     if (!floors[k].length) continue;
     const m = inst(floorG, lam(T[k]), floors[k]);
+    m.receiveShadow = true;
     root.add(m);
     raycast.push(m);
   }
   root.add(inst(new THREE.PlaneGeometry(M.CELL, M.CELL).rotateX(Math.PI / 2), lam(T.ceil), ceils));
   const wallMesh = inst(new THREE.BoxGeometry(M.CELL, M.WALL_H, M.CELL), lam(T.wall), walls);
+  wallMesh.castShadow = wallMesh.receiveShadow = true;
   root.add(wallMesh);
   raycast.push(wallMesh);
   root.add(inst(new THREE.BoxGeometry(M.CELL, 0.7, M.CELL), lam(T.ceil), lintels));
@@ -76,6 +78,7 @@ export function buildWorld(scene, role) {
     const v = (c * 7 + r * 13) % 3;
     const size = kinds[v].slice(0, 3);
     const m = new THREE.Mesh(new THREE.BoxGeometry(...size), furnMats[v]);
+    m.castShadow = m.receiveShadow = true;
     if (theme === 'hospital' && v !== 1) m.rotation.y = ((c + r) % 2) * 0.25 - 0.12;
     // 病院のベッドには血の染みたシーツ
     if (theme === 'hospital' && v !== 1) {
