@@ -431,20 +431,27 @@ export class Sim {
 
   exoAttack(m) {
     this.stats.swings++;
-    this.emit({ e: 'swing' });
+    // 二段目は、一段目から少しの間だけ出せる（通信の遅れを見込んで判定は緩め）
+    const prev = this.lastSwing;
+    const combo = m.combo === 2 && prev && prev.stage === 1 && this.time - prev.t < 0.9;
+    this.lastSwing = { t: this.time, stage: combo ? 2 : 1 };
+    this.emit({ e: 'swing', stage: combo ? 2 : 1 });
     let best = null, bd = Infinity;
     for (const g of this.ghosts) {
       if (g.st === 'dead' || g.st === 'dormant') continue;
       const dx = g.x - m.x, dz = g.z - m.z, d = Math.hypot(dx, dz);
       const boss = g.type === 'boss';
-      if (d > (boss ? 3.0 : 2.3)) continue;
-      if (angDiff(yawTo(dx, dz), m.yaw) > (boss ? 1.2 : 1.0)) continue;
+      // 返し斬りは踏み込むぶん少し遠く・広く届く
+      if (d > (boss ? 3.0 : 2.3) + (combo ? 0.4 : 0)) continue;
+      if (angDiff(yawTo(dx, dz), m.yaw) > (boss ? 1.2 : 1.0) + (combo ? 0.25 : 0)) continue;
       if (g.type === 'crawl' && (g.ceil ? m.pitch < 0.3 : m.pitch > -0.2)) continue;
       if (d < bd) { bd = d; best = g; }
     }
     if (!best) return;
     const g = best;
-    const matOk = g.st !== 'roar' && (g.mat || this.time - g.matEnd < 0.15);
+    // 一段目で斬った霊には、霊体に戻っていても二段目が届く
+    const followUp = combo && prev.hitGid === g.id;
+    const matOk = g.st !== 'roar' && (g.mat || this.time - g.matEnd < 0.15 || followUp);
     if (!matOk) {
       this.emit({ e: 'phase', gid: g.id, x: r2(g.x), y: r2(g.y + 1), z: r2(g.z) });
       return;
@@ -462,7 +469,8 @@ export class Sim {
     g.hp -= dmg;
     this.stats.hits++;
     if (weak) this.stats.weakHits++;
-    this.emit({ e: 'hit', gid: g.id, weak, x: r2(g.x), y: r2(g.y + (g.type === 'crawl' ? 0.3 : 1.1)), z: r2(g.z) });
+    this.lastSwing.hitGid = g.id;
+    this.emit({ e: 'hit', gid: g.id, weak, combo, x: r2(g.x), y: r2(g.y + (g.type === 'crawl' ? 0.3 : 1.1)), z: r2(g.z) });
 
     if (g.hp <= 0) {
       this.setSt(g, 'dead', 0.6);

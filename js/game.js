@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import * as M from './map.js';
 import { buildWorld } from './world.js';
 import { makeGhost, makeAvatar, makeSword, makeMarker, makeBarrier, Fx, Decals } from './entities.js';
-import { drawScare, bloodScreenURL } from './textures.js';
+import { drawScare, bloodScreenURL, flame } from './textures.js';
 import { createPost } from './post.js';
 import { Sim, TYPE_IDX, ST_IDX, STANCE_IDX, ROLE_IDX, TIME_LIMIT, BARRIER, wrap } from './sim.js';
 
@@ -13,6 +13,9 @@ const EYE_CROUCH = 0.95;
 const FLASH = 30; // 懐中電灯の最大光量
 const FLASH_SURFACE = 0.55; // 照らされた壁・床の目標の明るさ（近づくと自動で絞る）
 const NOISE_LV = { idle: 0, crouch: 0, walk: 1, run: 3 };
+// 二段攻撃：一段目からこの間（秒）に押すと返し斬りが出る
+const COMBO_OPEN = 0.22;
+const COMBO_CLOSE = 0.55;
 const HUNTING = new Set(['alert', 'chase', 'windup', 'lunge']);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -78,6 +81,12 @@ export class Game {
       this.sword = makeSword();
       this.sword.root.position.set(0.3, -0.3, -0.42);
       this.sword.root.scale.setScalar(0.7);
+      // 二段目を受け付けている間だけ光る刃先
+      this.glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: flame(), color: 0xfff4d0, transparent: true, blending: THREE.AdditiveBlending, depthTest: false, fog: false }));
+      this.glint.position.set(0, 0.02, -0.88);
+      this.glint.visible = false;
+      this.sword.pivot.add(this.glint);
+      this.attackBtns = [...document.querySelectorAll('.act[data-a="attack"]')];
       this.camera.add(this.sword.root);
       this.noiseCv = $('noise');
       this.noiseG = this.noiseCv.getContext('2d');
@@ -97,6 +106,9 @@ export class Game {
     this.pingCd = 0;
     this.swingT = 9;
     this.swingCd = 0;
+    this.swingStage = 1;
+    this.comboStage = 0;
+    this.lastSwingAt = -9;
     this.stepAcc = 0;
     this.bob = 0;
     this.presence = 0;
@@ -229,7 +241,8 @@ export class Game {
         this.sfx.play('hit', ev);
         this.sfx.play('gore', ev);
         if (this.role === 'exo') vib(40);
-        this.toast(ev.weak ? '急所に入った！' : '手応えあり', 1);
+        this.toast(ev.combo ? (ev.weak ? '二段斬り・急所！' : '二段斬り！') : ev.weak ? '急所に入った！' : '手応えあり', 1);
+        if (ev.combo) this.shake = Math.max(this.shake, 0.15);
         break;
       case 'phase':
         this.sfx.play('whoosh', ev);
@@ -344,7 +357,10 @@ export class Game {
         this.sfx.play('salt');
         break;
       case 'swing':
-        if (this.role === 'seer') this.partner.swingT = 0;
+        if (this.role === 'seer') {
+          this.partner.swingT = 0;
+          this.partner.swingStage = ev.stage || 1;
+        }
         break;
       case 'slam':
         this.fx.ring(ev.x, ev.z, 0xff4030, 3.6);
@@ -498,12 +514,20 @@ export class Game {
     this.swingCd -= dt;
     this.pingCd -= dt;
     if (this.role === 'exo') {
-      if (inp.pressed('attack') && this.swingCd <= 0 && !me.guard) {
-        this.swingCd = 0.55;
-        this.swingT = 0;
-        this.sfx.play('swing');
-        this.act({ t: 'atk', x: r2(me.x), z: r2(me.z), yaw: r2(me.yaw), pitch: r2(me.pitch) });
+      // 攻撃：一段目の後、決まった間合い（COMBO_OPEN〜COMBO_CLOSE 秒）で押すと二段目の返し斬り。
+      // 早すぎる連打は二段目の機会を失う
+      const since = this.time - this.lastSwingAt;
+      if (this.comboStage === 1 && since > COMBO_CLOSE) this.comboStage = 0;
+      if (inp.pressed('attack') && !me.guard) {
+        if (this.comboStage === 1 && since >= COMBO_OPEN) {
+          this.swing(2);
+        } else if (this.comboStage === 1) {
+          this.comboStage = 0;
+        } else if (this.swingCd <= 0) {
+          this.swing(1);
+        }
       }
+      this.comboWindow = this.comboStage === 1 && since >= COMBO_OPEN && since <= COMBO_CLOSE;
       if (inp.pressed('salt')) {
         if (me.salt > 0) this.act({ t: 'salt', x: r2(me.x), z: r2(me.z), yaw: r2(me.yaw) });
         else this.toast('清め塩がない', 1);
@@ -530,6 +554,19 @@ export class Game {
         }
       }
     }
+  }
+
+  // 除霊役の斬撃。stage 1＝横薙ぎ、2＝返し斬り（間合いよく続けた時だけ）
+  swing(stage) {
+    const me = this.me;
+    this.swingStage = stage;
+    this.swingT = 0;
+    this.lastSwingAt = this.time;
+    this.comboStage = stage === 1 ? 1 : 0;
+    this.swingCd = stage === 1 ? 0.55 : 0.8;
+    this.sfx.play(stage === 1 ? 'swing' : 'swing2');
+    if (stage === 2) vib(25);
+    this.act({ t: 'atk', combo: stage, x: r2(me.x), z: r2(me.z), yaw: r2(me.yaw), pitch: r2(me.pitch) });
   }
 
   // 結界を張る場所：見ている先の床（最大6m）。壁や家具の中なら自分の足元
@@ -671,20 +708,39 @@ export class Game {
   animSword(dt) {
     this.swingT += dt;
     const P = this.sword.pivot, R = this.sword.root;
-    const u = this.swingT / 0.3;
-    let rx, ry, rz, px = 0.3, py = -0.3;
+    const u = this.swingT / (this.swingStage === 2 ? 0.26 : 0.3);
+    let rx, ry, rz, px = 0.3, py = -0.3, pz = -0.42;
+    const ease = (w) => 1 - (1 - w) * (1 - w);
     if (u < 1) {
-      if (u < 0.2) { rx = 1.3; ry = -0.7; rz = -0.7; } else {
-        const w = (u - 0.2) / 0.8, e = 1 - (1 - w) * (1 - w);
-        rx = 1.3 - 2.0 * e; ry = -0.7 + 1.8 * e; rz = -0.7 + 1.3 * e;
+      if (this.swingStage === 1) {
+        // 一段目：右上から左下への横薙ぎ
+        if (u < 0.2) { rx = 1.3; ry = -0.7; rz = -0.7; } else {
+          const e = ease((u - 0.2) / 0.8);
+          rx = 1.3 - 2.0 * e; ry = -0.7 + 1.8 * e; rz = -0.7 + 1.3 * e;
+        }
+      } else {
+        // 二段目：左下から右上へ踏み込みながら斬り返す
+        const e = ease(Math.min(1, u / 0.85));
+        rx = -0.25 + 1.45 * e; ry = 0.75 - 1.65 * e; rz = 0.35 - 1.35 * e;
+        pz = -0.42 - Math.sin(u * Math.PI) * 0.14;
+        px = 0.3 - Math.sin(u * Math.PI) * 0.06;
       }
       P.rotation.set(rx, ry, rz);
-      R.position.set(px, py, -0.42);
+      R.position.set(px, py, pz);
+      this.glint.visible = false;
       return;
     }
-    if (this.me.guard) { rx = 0.15; ry = 0.1; rz = 1.45; px = 0.05; py = -0.18; } else {
-      const s = Math.sin(this.bob) * 0.03;
-      rx = 0.45 + s; ry = 0.25; rz = -0.25; py = -0.3 + s * 0.5;
+    if (this.comboWindow) {
+      // 二段目を受け付けている間は振り抜いた構えで止め、刃先が光る
+      rx = -0.25; ry = 0.75; rz = 0.35; py = -0.26;
+      this.glint.visible = true;
+      this.glint.scale.setScalar(0.12 + Math.sin(this.time * 40) * 0.04);
+    } else {
+      this.glint.visible = false;
+      if (this.me.guard) { rx = 0.15; ry = 0.1; rz = 1.45; px = 0.05; py = -0.18; } else {
+        const s = Math.sin(this.bob) * 0.03;
+        rx = 0.45 + s; ry = 0.25; rz = -0.25; py = -0.3 + s * 0.5;
+      }
     }
     const k = Math.min(1, dt * 16);
     P.rotation.x += (rx - P.rotation.x) * k;
@@ -692,6 +748,11 @@ export class Game {
     P.rotation.z += (rz - P.rotation.z) * k;
     R.position.x += (px - R.position.x) * k;
     R.position.y += (py - R.position.y) * k;
+    R.position.z += (pz - R.position.z) * k;
+    if (this.comboShown !== this.comboWindow) {
+      this.comboShown = this.comboWindow;
+      this.attackBtns.forEach((b) => b.classList.toggle('combo', this.comboWindow));
+    }
   }
 
   updatePartner(dt) {
@@ -709,7 +770,8 @@ export class Game {
     if (A.sword) {
       p.swingT += dt;
       const u = p.swingT / 0.3;
-      A.sword.rotation.x = u < 1 ? 1.2 - 2.2 * u : p.guard ? 0.2 : 0.4;
+      // 二段目は下から斬り上げる
+      A.sword.rotation.x = u < 1 ? (p.swingStage === 2 ? -1.0 + 2.2 * u : 1.2 - 2.2 * u) : p.guard ? 0.2 : 0.4;
       A.sword.rotation.z = p.guard ? 1.4 : 0;
     }
     if (this.role === 'seer') {

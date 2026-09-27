@@ -202,3 +202,5 @@ body[data-role="exo"] .act.seer, body[data-role="seer"] .act.exo { display: none
 #loading p { animation: loadingPulse 1.6s ease-in-out infinite; }
 @keyframes loadingPulse { 50% { opacity: 0.3; } }
 .note a { color: #9fc4ff; }
+/* 二段目を受け付けている間の「祓」ボタン */
+.act.combo { border-color: #fff1c0; box-shadow: 0 0 16px rgba(255, 230, 160, 0.8), inset 0 0 12px rgba(255, 230, 160, 0.4); color: #fff4d0; }

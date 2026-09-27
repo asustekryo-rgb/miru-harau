@@ -290,6 +290,11 @@ export class Sfx {
     switch (kind) {
       case 'step': this.burst('lowpass', 420, 180, 1, 0.08, 0.1, d); break;
       case 'swing': this.burst('bandpass', 2600, 500, 2, 0.22, 0.35, d); break;
+      case 'swing2':
+        // 返し斬り：鋭く高い風切り音と、刃が鳴るような響き
+        this.burst('bandpass', 1200, 4200, 3, 0.2, 0.45, d);
+        this.tone('sine', 2400, 2600, 0.35, 0.06, d, 0.05);
+        break;
       case 'whoosh':
         this.burst('bandpass', 900, 200, 4, 0.5, 0.35, d);
         this.tone('sine', 320, 110, 0.5, 0.1, d);
