@@ -9,7 +9,18 @@ let loading = null;
 
 export function loadGhostModel() {
   if (!loading) {
-    loading = new GLTFLoader().loadAsync('assets/models/ghost.glb')
+    // アーティファクト版は .glb を置けないので、base64 テキストで受け取って復元する
+    const load = window.MH_MODEL_B64
+      ? fetch(window.MH_MODEL_B64)
+        .then((r) => r.text())
+        .then((b64) => {
+          const bin = atob(b64.trim());
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          return new GLTFLoader().parseAsync(buf.buffer, '');
+        })
+      : new GLTFLoader().loadAsync('assets/models/ghost.glb');
+    loading = load
       .then((g) => {
         g.scene.traverse((o) => { if (o.isMesh && !srcMesh) srcMesh = o; });
         return srcMesh;

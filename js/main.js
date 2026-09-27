@@ -361,7 +361,13 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+// Claude のアーティファクトではカメラと WebRTC が使えないので、ひとり練習だけを出す
+if (window.MH_ARTIFACT) {
+  for (const id of ['btn-host', 'btn-join', 'btn-local', 'lan-note']) $(id).hidden = true;
+  $('artifact-note').hidden = false;
+}
+
+if (!window.MH_ARTIFACT && 'serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
