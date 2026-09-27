@@ -279,9 +279,15 @@ function makeModelGhost(type) {
         e.scale.setScalar(0.018 + k * 0.014);
       }
     },
+    // 除霊役用：何も描かない（色も奥行きも影も残さない）
     setHidden(h) {
       B.mat.colorWrite = !h;
-      for (const mm of extraMats) mm.colorWrite = !h;
+      if (h) B.mat.depthWrite = false;
+      body.traverse((o) => { if (o.isMesh && o !== mk.weak) o.castShadow = !h; });
+      for (const mm of extraMats) {
+        mm.colorWrite = !h;
+        if (h) mm.depthWrite = false;
+      }
       for (const e of eyes) e.visible = !h;
     },
   };
@@ -414,10 +420,14 @@ export function makeGhost(type) {
   const mats = Object.values(m);
 
   return {
-    // 除霊役用：姿は描かず影だけ落とす
+    // 除霊役用：何も描かない（色も奥行きも影も残さない）
     setHidden(h) {
-      for (const mm of mats) mm.colorWrite = !h;
+      for (const mm of mats) {
+        mm.colorWrite = !h;
+        if (h) mm.depthWrite = false;
+      }
       for (const e of H.eyes) e.visible = !h;
+      for (const o of meshes) o.castShadow = !h;
     },
     root, body, head: H.head, eyes: H.eyes, mouth: H.mouth, weak, ring, slamRing, fan, arms, legs, guts, type, meshes, mats,
     baseScale: boss ? 1.5 : 1,

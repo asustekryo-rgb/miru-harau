@@ -835,7 +835,7 @@ export class Game {
         // 除霊役：塩で暴いた時／襲われた瞬間／指示役の印が付いている間だけ見える
         const marked = this.markers.some((m) => m.gid === id && t < m.until);
         const shown = v.flashT > 0 || v.rev > 0 || marked;
-        // 見えない間も懐中電灯の光では影だけが落ちる
+        // 印・塩・襲われた瞬間以外は、姿も影も一切見せない
         V.setHidden(!shown);
         V.weak.visible = V.ring.visible = V.fan.visible = V.slamRing.visible = false;
         if (shown) {

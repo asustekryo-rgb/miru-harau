@@ -496,7 +496,9 @@ export class Sim {
     g.target = 'exo';
     const exo = this.players.exo;
     g.lkx = exo.x; g.lkz = exo.z; g.lost = 0;
-    this.setSt(g, 'stun', 0.5);
+    // 斬られた霊はすぐ霊体に戻って退く。実体化の猶予も打ち消し、連続で斬れないようにする
+    g.matEnd = -99;
+    this.setSt(g, 'flee', 1.1);
   }
 
   exoSalt(m) {
